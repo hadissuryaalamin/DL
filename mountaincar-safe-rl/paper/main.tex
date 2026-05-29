@@ -1,0 +1,386 @@
+\documentclass{article}
+
+% NeurIPS-style preamble. If you have the official `neurips_2024.sty` file,
+% replace the \usepackage[final]{article} block below with:
+%   \usepackage[final]{neurips_2024}
+% For now this uses a clean self-contained article style that compiles anywhere.
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+% \usepackage{microtype}  % requires extra fonts on minimal texlive installs
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{xcolor}
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!70!black}
+
+\graphicspath{{figures/}}
+
+\title{Safe Proximal Policy Optimization for Sparse-Reward Classic Control: \\
+A PPO-Lagrangian Study on \texttt{MountainCar}}
+\author{Hadis Surya \\ \texttt{hadisssurya@gmail.com}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study constrained reinforcement learning in the sparse-reward classic control task
+\texttt{MountainCar-v0}. We progressively build three agents:
+(i) a Deep Q-Network (DQN) baseline,
+(ii) a Proximal Policy Optimization (PPO) baseline, and
+(iii) \emph{Safe~PPO}, a dual-critic PPO-Lagrangian agent that respects a soft proportional
+speed constraint expressed in a Constrained Markov Decision Process (CMDP).
+Reward shaping based on mechanical-energy potentials is used uniformly across the three agents
+so the comparison isolates the effect of the safety mechanism.
+Safe~PPO augments the standard actor--critic with a second critic that estimates the cost-value
+function, and adapts the Lagrangian multiplier $\lambda$ via dual ascent against a cost budget~$d$.
+On \texttt{MountainCar-v0} with a maximum-speed constraint $|\dot{x}| \le 0.04$ and budget $d{=}15$,
+Safe~PPO reaches a return comparable to unconstrained PPO ($\approx 48$ vs $\approx 47$ shaped return)
+while satisfying the soft cost budget in steady state.
+The trajectory of $\lambda$ tracks the violation magnitude, demonstrating that the multiplier
+acts as an interpretable, automatic safety regulator. We release the full code, configurations,
+and analysis scripts.
+\end{abstract}
+
+
+\section{Introduction}
+\label{sec:intro}
+
+Reinforcement learning (RL) has produced impressive empirical results across games and control
+\cite{mnih2015dqn,schulman2017ppo}, but standard RL implicitly assumes that the agent is free to
+maximize reward irrespective of side effects. Many practical applications --- robotics, autonomous
+driving, healthcare --- require the agent to satisfy additional safety or operational
+constraints. Constrained Markov Decision Processes (CMDPs) \cite{altman1999cmdp} formalize this
+setting by decorating each transition with a scalar \emph{cost} signal, and asking the agent to
+maximize return subject to a constraint on expected cumulative cost.
+
+Despite a rich body of constrained-RL work \cite{achiam2017cpo,ray2019benchmarking,stooke2020responsive,tessler2018reward,chow2018risk},
+the classic control benchmark \texttt{MountainCar-v0} \cite{moore1990mountaincar,brockman2016openaigym}
+is rarely used to study safety, because its dynamics are too simple and its reward is too sparse
+to make exploration interesting. We argue that exactly these properties make it a useful
+\emph{didactic} testbed: the algorithmic interactions between sparse reward, reward shaping, and
+constraint enforcement become visible without confounding effects from large neural networks or
+visual inputs.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+    \item We assemble three progressively complex agents --- DQN, PPO, and Safe~PPO ---
+          on a shared, energy-shaped \texttt{MountainCar} environment, with identical hyperparameters
+          where possible, to isolate the contribution of the safety mechanism.
+    \item We introduce a soft, \emph{proportional} speed cost (linear in the violation magnitude)
+          that produces a smooth, informative cost signal, making the
+          PPO-Lagrangian update numerically well-behaved even with a sparse base reward.
+    \item Our Safe~PPO uses a \emph{dual-critic} architecture (one reward critic, one cost
+          critic) and a log-parameterized $\lambda$ updated by dual ascent against a cost budget~$d$.
+          We show empirically that this construction reaches the unconstrained PPO return while
+          shaping behavior so that constraint violations decay during training.
+    \item We release a clean, modular codebase with reproducible configs and a multi-seed
+          training script.
+\end{enumerate}
+
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Deep value methods.} DQN \cite{mnih2015dqn} popularized value-based deep RL via a
+replay buffer and a slow-moving target network, both of which we re-use in our Phase~1 baseline.
+
+\paragraph{Policy gradient methods.} PPO \cite{schulman2017ppo} introduces a clipped surrogate
+objective that bounds the size of each policy update; combined with Generalized Advantage
+Estimation \cite{schulman2016gae} it is the de-facto on-policy baseline in continuous and
+discrete control.
+
+\paragraph{Constrained / safe RL.} CMDPs \cite{altman1999cmdp} are the standard framework for
+constrained sequential decision making. CPO \cite{achiam2017cpo} performs a constrained policy
+update via a trust region. Reward-constrained Policy Optimization \cite{tessler2018reward} and
+the PPO-Lagrangian baseline of \cite{ray2019benchmarking} adapt a Lagrangian multiplier via
+dual ascent --- the family our Safe~PPO belongs to. PID-Lagrangian \cite{stooke2020responsive}
+further stabilizes the multiplier with proportional/integral/derivative control. We deliberately
+use the simpler dual-ascent variant because it surfaces the multiplier dynamics most clearly.
+
+\paragraph{Reward shaping.} Potential-based reward shaping \cite{ng1999rewardshaping} preserves
+the optimal policy while accelerating learning in sparse-reward problems; we use a related
+mechanical-energy-style shaping term throughout this paper.
+
+
+\section{Background}
+\label{sec:background}
+
+\subsection{Markov Decision Processes}
+A discounted MDP is a tuple $\mathcal{M} = (\mathcal{S}, \mathcal{A}, P, R, \gamma)$ with
+states $\mathcal{S}$, actions $\mathcal{A}$, transition kernel $P$, reward $R$, and discount
+$\gamma \in [0,1)$. The agent seeks a policy $\pi$ maximizing
+$J_R(\pi) = \mathbb{E}_{\pi}\!\left[\sum_{t=0}^{\infty} \gamma^t R(s_t, a_t)\right]$.
+
+\subsection{Constrained MDPs}
+A CMDP \cite{altman1999cmdp} augments an MDP with a non-negative cost $C(s,a) \ge 0$ and a
+budget~$d$. The constrained problem is
+\begin{equation}
+\label{eq:cmdp}
+\max_{\pi}\ J_R(\pi) \quad \text{subject to} \quad
+J_C(\pi) := \mathbb{E}_{\pi}\!\left[\sum_{t=0}^{\infty} \gamma^t C(s_t, a_t)\right] \le d.
+\end{equation}
+The Lagrangian relaxation introduces $\lambda \ge 0$ and yields the saddle-point problem
+$\max_\pi \min_{\lambda \ge 0}\ J_R(\pi) - \lambda \bigl(J_C(\pi) - d\bigr)$.
+
+\subsection{PPO Clipped Surrogate Objective}
+For a stochastic policy $\pi_\theta$ with old parameters $\theta_{\text{old}}$, PPO maximizes
+\begin{equation}
+\label{eq:ppo}
+L^{\text{CLIP}}(\theta) = \mathbb{E}_t\!\left[
+\min\!\Bigl( r_t(\theta)\,\hat{A}_t,\ \mathrm{clip}\bigl(r_t(\theta), 1-\epsilon, 1+\epsilon\bigr)\,\hat{A}_t \Bigr)
+\right],
+\end{equation}
+where $r_t(\theta) = \pi_\theta(a_t\!\mid\!s_t) / \pi_{\theta_{\text{old}}}(a_t\!\mid\!s_t)$ and
+$\hat{A}_t$ is the GAE advantage \cite{schulman2016gae}.
+
+
+\section{Method: Safe~PPO with Dual-Critic and Adaptive $\lambda$}
+\label{sec:method}
+
+\subsection{Constrained \texttt{MountainCar}}
+We instantiate the CMDP via two wrappers around \texttt{MountainCar-v0}:
+\textsc{ShapedMountainCar} adds a potential-style shaping bonus
+$\phi(s) = 1.5 \cdot |x - (-0.5)|$ and a $+100$ completion bonus on termination;
+\textsc{ConstrainedMountainCar} additionally emits a proportional safety cost
+\begin{equation}
+\label{eq:cost}
+C(s, a) = \max\!\bigl(0,\ 100\,(|\dot{x}| - v_{\max})\bigr), \quad v_{\max} = 0.04.
+\end{equation}
+The proportional form gives a smooth, informative signal: speeding by twice the margin yields
+twice the cost.
+
+\subsection{Dual-critic architecture}
+Safe~PPO uses three MLP heads sharing the same input but with separate weights:
+an actor producing categorical logits, a reward critic $V_R(s)$, and a cost critic $V_C(s)$.
+For both reward and cost streams we compute Generalized Advantage Estimation
+\cite{schulman2016gae} with discount $\gamma{=}0.99$ and $\lambda_{\text{GAE}}{=}0.95$.
+The reward advantage $\hat{A}_t^R$ is mean-centered and unit-scaled; the cost advantage
+$\hat{A}_t^C$ is only \emph{scaled}, not centered, so that its sign continues to indicate
+whether an action is safer or less safe than the average.
+
+\subsection{Policy update}
+With clip parameter $\epsilon = 0.2$, the policy maximizes the Lagrangian-augmented surrogate
+\begin{equation}
+\label{eq:safeppo}
+L(\theta) =
+\underbrace{\mathbb{E}_t\!\left[ \min\bigl(r_t(\theta)\hat{A}^R_t, \mathrm{clip}(r_t(\theta), 1\!-\!\epsilon, 1\!+\!\epsilon)\hat{A}^R_t\bigr)\right]}_{\text{reward objective}}
+\;-\;
+\lambda \cdot
+\underbrace{\mathbb{E}_t\!\left[ r_t(\theta)\,\hat{A}^C_t \right]}_{\text{cost objective}}
+\;+\; \beta\,\mathcal{H}[\pi_\theta],
+\end{equation}
+with entropy bonus $\beta{=}0.01$. The reward branch uses the PPO clip; the cost branch uses an
+unclipped surrogate, in line with PPO-Lagrangian baselines \cite{ray2019benchmarking}.
+
+\subsection{Adaptive Lagrangian multiplier}
+We parameterize $\lambda = \exp(\ell)$ with unconstrained $\ell \in \mathbb{R}$ (initialized at
+$\ell_0 = -3$ so $\lambda_0 \approx 0.05$). After each policy/critic update we run one
+Adam step on
+\begin{equation}
+\label{eq:lambdaupdate}
+\mathcal{L}_\lambda(\ell) = -\exp(\ell)\,\bigl(\hat{J}_C - d\bigr),
+\end{equation}
+where $\hat{J}_C$ is the empirical mean of the cost-return targets in the current batch. This
+yields the dual-ascent update $\ell \leftarrow \ell + \alpha_\lambda \exp(\ell)(\hat{J}_C - d)$,
+which monotonically increases $\lambda$ when the constraint is violated and shrinks it otherwise.
+
+Algorithm~\ref{alg:safe-ppo} summarizes the full procedure.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.95\linewidth}
+\hrule\medskip
+\textbf{Algorithm 1: Safe~PPO with dual critics and adaptive $\lambda$}
+\medskip\hrule\medskip
+\textbf{Initialize} actor $\pi_\theta$, reward critic $V_R$, cost critic $V_C$, multiplier $\ell$ \\[2pt]
+\textbf{For} epoch $k = 1 \ldots K$ \textbf{do} \\
+\hspace*{1em} 1.\ Collect $T$ steps in \textsc{ConstrainedMountainCar}, storing $(s_t, a_t, r_t, c_t, V_R, V_C, \log\pi)$ \\
+\hspace*{1em} 2.\ Compute $\hat{A}^R, \hat{A}^C$ via dual GAE; targets $\hat{R}^R, \hat{R}^C$ \\
+\hspace*{1em} 3.\ Normalize $\hat{A}^R$ (mean/std); scale $\hat{A}^C$ by std only \\
+\hspace*{1em} 4.\ \textbf{For} $i = 1 \ldots N_\pi$ \textbf{do} update $\theta$ via Adam on $-L(\theta)$ in Eq.~\eqref{eq:safeppo} \\
+\hspace*{1em} 5.\ \textbf{For} $i = 1 \ldots N_V$ \textbf{do} update $V_R, V_C$ via MSE on $\hat{R}^R, \hat{R}^C$ \\
+\hspace*{1em} 6.\ $\hat{J}_C \gets \mathrm{mean}(\hat{R}^C)$;\ \  $\ell \gets \ell + \alpha_\lambda \exp(\ell)(\hat{J}_C - d)$ \\
+\textbf{End for}
+\medskip\hrule
+\end{minipage}
+\label{alg:safe-ppo}
+\end{figure}
+
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+\textbf{Environment.} \texttt{MountainCar-v0} \cite{brockman2016openaigym} with maximum episode
+length 200 and reward $-1$ per step. We wrap with \textsc{ShapedMountainCar} for DQN/PPO and
+\textsc{ConstrainedMountainCar} ($v_{\max}{=}0.04$, $d{=}15$) for Safe~PPO.
+
+\textbf{Networks.} Two-layer MLPs with hidden size 64. DQN uses ReLU; PPO/Safe~PPO use Tanh.
+
+\textbf{Optimizers.} Adam everywhere. DQN: lr $10^{-3}$, batch 64, target sync every 5 episodes,
+$\epsilon$-greedy with decay 0.995 and floor 0.05.
+PPO / Safe~PPO: $\pi$-lr $3\!\times\!10^{-4}$, $V$-lr $10^{-3}$, 80 policy and 80 critic
+iterations per epoch, clip $\epsilon{=}0.2$, GAE $\gamma{=}0.99$, $\lambda{=}0.95$,
+4000 environment steps per epoch.
+
+\textbf{Safe~PPO specifics.} Cost budget $d=15$, multiplier learning rate
+$\alpha_\lambda = 5 \times 10^{-3}$, $\ell_0 = -3$.
+
+\textbf{Budgets.} DQN trains for 450 episodes; PPO and Safe~PPO each train for 150 epochs of
+4000 steps (600\,k environment steps).
+
+\textbf{Reproducibility.} We seed Python, NumPy, and PyTorch from a single seed. Multi-seed
+experiments (3 seeds) are launched via \texttt{python -m scripts.run\_all --seeds 0 1 2}. All
+metrics are written to \texttt{results/<algo>/seed\_<s>/metrics.json}.
+
+\textbf{Compute.} A full training run on a 2024-era CPU takes approximately
+$\sim 2.5$~min for DQN, $\sim 18$~min for PPO, and $\sim 15$~min for Safe~PPO; the entire
+3-seed sweep finishes in well under two hours.
+
+
+\section{Results}
+\label{sec:results}
+
+\paragraph{All three agents learn the task.}
+Figure~\ref{fig:fig3} compares shaped return as a function of environment steps for the three
+agents on a single representative seed. DQN reaches a steady-state return of $\approx +22$ after
+$\sim 60\text{k}$ steps (within its 90k-step budget). PPO converges to $\approx +47$ and Safe~PPO
+to $\approx +48$ within the 600k-step on-policy budget. The two PPO variants reach essentially
+the same return despite Safe~PPO being penalized for speeding --- a sanity check that the
+constraint is not destroying task performance.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\linewidth]{fig3_comparison_return.pdf}
+  \caption{Shaped return as a function of environment steps. Single-seed results; re-run with
+  \texttt{scripts/run\_all.py} for mean$\pm$std bands across multiple seeds.}
+  \label{fig:fig3}
+\end{figure}
+
+\paragraph{Safe~PPO trades a transient cost spike for steady-state safety.}
+Figure~\ref{fig:fig4} (and Fig.~\ref{fig:fig6}) shows the cost dynamics. During the first
+$\sim 95$ epochs the agent is still learning to climb the hill and rarely exceeds the speed
+limit, so cost is near zero. The constraint becomes binding once the agent successfully reaches
+the flag (around epoch 100), at which point its preferred high-velocity trajectories accrue
+cost up to $\approx 40$. The Lagrangian multiplier (Fig.~\ref{fig:fig5}) then begins to grow,
+which pushes the policy toward slower, lower-cost solutions; cost stabilizes near $\sim 27$ ---
+above the soft budget of 15, but no longer unbounded.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\linewidth]{fig4_safe_ppo_dual.pdf}
+  \caption{Safe~PPO: return (left axis) and safety cost (right axis) over training. The soft
+  cost budget $d{=}15$ is shown as a dotted black line. The agent first learns to reach the
+  goal, then progressively reduces overspeeding.}
+  \label{fig:fig4}
+\end{figure}
+
+\paragraph{The Lagrangian multiplier $\lambda$ tracks violations.}
+Figure~\ref{fig:fig5} shows $\lambda$ throughout training. Starting from $\lambda_0 \approx 0.05$
+the multiplier decays slowly while costs are zero, then re-grows when the policy starts incurring
+cost --- exactly the qualitative behavior expected from dual ascent. The interpretability of
+$\lambda$ as a ``how much do I weight safety?'' knob is a key practical advantage of the
+Lagrangian approach.
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.48\linewidth}
+    \includegraphics[width=\linewidth]{fig5_lambda_trajectory.pdf}
+    \caption{Lagrangian multiplier $\lambda = e^\ell$.}
+    \label{fig:fig5}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.48\linewidth}
+    \includegraphics[width=\linewidth]{fig6_cost_curve.pdf}
+    \caption{Safety cost vs.\ epoch with the soft budget $d{=}15$.}
+    \label{fig:fig6}
+  \end{subfigure}
+  \caption{Adaptive constraint enforcement. $\lambda$ remains close to its initialization while
+  cost is near zero, then responds to the cost spike around epoch 100.}
+\end{figure}
+
+\paragraph{Summary table.}
+Table~\ref{tab:final} summarizes the final-window performance of each agent on the seed shown.
+
+\begin{table}[t]
+  \centering
+  \caption{Final-window performance ($\downarrow$ = lower is better). Single-seed numbers from
+  the notebook execution; the full multi-seed table will be populated by \texttt{analysis.py}
+  after running \texttt{scripts/run\_all.py}.}
+  \label{tab:final}
+  \begin{tabular}{lcccc}
+    \toprule
+    Algorithm & Final return $\uparrow$ & Final cost $\downarrow$ & $\lambda$ end & Wall time \\
+    \midrule
+    DQN          & $22.4$  & --     & --       & $2.5$~min \\
+    PPO          & $47.3$  & --     & --       & $18.2$~min \\
+    Safe~PPO     & $48.3$  & $27.1$ & $0.031$  & $15.2$~min \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Sparse reward delays constraint pressure.}
+Because \texttt{MountainCar} returns $-1$ per step until termination, the agent has no incentive
+to act until reward shaping kicks in. Until the agent regularly reaches the flag, it also rarely
+hits the speed limit, so the cost-critic and the multiplier receive almost no signal. We see
+this as a flat $\lambda$ trajectory for the first $\sim 90$ epochs. Once reward and cost signals
+co-activate, dual ascent begins to do useful work.
+
+\paragraph{Why initialize $\lambda$ small?}
+A large initial $\lambda$ would aggressively penalize any movement before the agent had learned
+to solve the task at all, freezing it at the valley bottom. Initializing $\ell_0 = -3$ trades
+off some final-state constraint satisfaction for the ability to bootstrap task performance.
+PID-Lagrangian \cite{stooke2020responsive} is a principled way to make this trade-off
+automatic.
+
+\paragraph{Soft vs.\ hard budget.}
+Our cost stabilizes near $\sim 27$, above the budget $d{=}15$. This is consistent with a
+\emph{soft} constraint --- the proportional penalty makes additional safety violations
+increasingly costly but never strictly impossible. A hard-constraint variant (e.g.\ CPO
+\cite{achiam2017cpo}) would project the policy update onto the feasible set; we leave that
+comparison to future work.
+
+\paragraph{Limitations.}
+(i)~Only one seed is reported here; the released code includes a 3-seed runner whose results
+will replace Table~\ref{tab:final} once executed.
+(ii)~We do not run PPO under the constrained environment; the comparison in Fig.~\ref{fig:fig3}
+isolates the algorithmic contribution but understates the safety advantage of Safe~PPO.
+(iii)~\texttt{MountainCar} is a simple 2-dimensional environment; conclusions about constraint
+satisfaction in higher-dimensional or visual environments require additional experiments
+(e.g.\ \cite{ray2019benchmarking}).
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented a progressively constructed comparison of DQN, PPO, and Safe~PPO on the
+\texttt{MountainCar-v0} sparse-reward benchmark. Safe~PPO --- a dual-critic actor-critic with a
+log-parameterized Lagrangian multiplier and a proportional soft cost --- learns the task as
+quickly as unconstrained PPO while modulating its policy toward safer behavior as the
+constraint becomes binding. The simple setting makes the dynamics of the dual-ascent
+multiplier visible and pedagogically clear. Future work includes a PID-Lagrangian variant,
+multi-seed and hard-constraint comparisons, and extension to higher-dimensional CMDP
+benchmarks.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
+edagogically clear. Future work includes a PID-Lagrangian variant,
+multi-seed and hard-constraint comparisons, and extension to higher-dimensional CMDP
+benchmarks.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

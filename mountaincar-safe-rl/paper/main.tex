@@ -164,7 +164,10 @@ For both reward and cost streams we compute Generalized Advantage Estimation
 \cite{schulman2016gae} with discount $\gamma{=}0.99$ and $\lambda_{\text{GAE}}{=}0.95$.
 The reward advantage $\hat{A}_t^R$ is mean-centered and unit-scaled; the cost advantage
 $\hat{A}_t^C$ is only \emph{scaled}, not centered, so that its sign continues to indicate
-whether an action is safer or less safe than the average.
+whether an action is safer or less safe than the average. Crucially, this scaling is applied
+only when the batch contains non-zero cost: when no violation has occurred we set
+$\hat{A}_t^C{=}0$ rather than normalizing critic noise, so that Safe~PPO reduces exactly to PPO
+until a genuine constraint signal appears (see Section~\ref{sec:discussion}).
 
 \subsection{Policy update}
 With clip parameter $\epsilon = 0.2$, the policy maximizes the Lagrangian-augmented surrogate
@@ -192,7 +195,7 @@ where $\hat{J}_C$ is the empirical mean of the cost-return targets in the curren
 yields the dual-ascent update $\ell \leftarrow \ell + \alpha_\lambda \exp(\ell)(\hat{J}_C - d)$,
 which monotonically increases $\lambda$ when the constraint is violated and shrinks it otherwise.
 
-Algorithm~\ref{alg:safe-ppo} summarizes the full procedure.
+Algorithm~1 summarizes the full procedure.
 
 \begin{figure}[H]
 \centering
@@ -204,14 +207,13 @@ Algorithm~\ref{alg:safe-ppo} summarizes the full procedure.
 \textbf{For} epoch $k = 1 \ldots K$ \textbf{do} \\
 \hspace*{1em} 1.\ Collect $T$ steps in \textsc{ConstrainedMountainCar}, storing $(s_t, a_t, r_t, c_t, V_R, V_C, \log\pi)$ \\
 \hspace*{1em} 2.\ Compute $\hat{A}^R, \hat{A}^C$ via dual GAE; targets $\hat{R}^R, \hat{R}^C$ \\
-\hspace*{1em} 3.\ Normalize $\hat{A}^R$ (mean/std); scale $\hat{A}^C$ by std only \\
+\hspace*{1em} 3.\ Normalize $\hat{A}^R$ (mean/std); scale $\hat{A}^C$ by std only \emph{if} batch cost ${>}0$, else $\hat{A}^C \gets 0$ \\
 \hspace*{1em} 4.\ \textbf{For} $i = 1 \ldots N_\pi$ \textbf{do} update $\theta$ via Adam on $-L(\theta)$ in Eq.~\eqref{eq:safeppo} \\
 \hspace*{1em} 5.\ \textbf{For} $i = 1 \ldots N_V$ \textbf{do} update $V_R, V_C$ via MSE on $\hat{R}^R, \hat{R}^C$ \\
 \hspace*{1em} 6.\ $\hat{J}_C \gets \mathrm{mean}(\hat{R}^C)$;\ \  $\ell \gets \ell + \alpha_\lambda \exp(\ell)(\hat{J}_C - d)$ \\
 \textbf{End for}
 \medskip\hrule
 \end{minipage}
-\label{alg:safe-ppo}
 \end{figure}
 
 
@@ -241,8 +243,8 @@ experiments (3 seeds) are launched via \texttt{python -m scripts.run\_all --seed
 metrics are written to \texttt{results/<algo>/seed\_<s>/metrics.json}.
 
 \textbf{Compute.} A full training run on a 2024-era CPU takes approximately
-$\sim 2.5$~min for DQN, $\sim 18$~min for PPO, and $\sim 15$~min for Safe~PPO; the entire
-3-seed sweep finishes in well under two hours.
+$\sim 2.5$~min for DQN, $\sim 7$~min for PPO, and $\sim 6$~min for Safe~PPO; the entire
+3-seed sweep finishes in under an hour.
 
 
 \section{Results}
@@ -250,27 +252,27 @@ $\sim 2.5$~min for DQN, $\sim 18$~min for PPO, and $\sim 15$~min for Safe~PPO; t
 
 \paragraph{All three agents learn the task.}
 Figure~\ref{fig:fig3} compares shaped return as a function of environment steps for the three
-agents on a single representative seed. DQN reaches a steady-state return of $\approx +22$ after
-$\sim 60\text{k}$ steps (within its 90k-step budget). PPO converges to $\approx +47$ and Safe~PPO
-to $\approx +48$ within the 600k-step on-policy budget. The two PPO variants reach essentially
-the same return despite Safe~PPO being penalized for speeding --- a sanity check that the
+agents, averaged over 3 seeds (mean$\pm$std bands). DQN reaches a steady-state return of $\approx +26$ after
+$\sim 60\text{k}$ steps (within its 90k-step budget). PPO converges to $\approx +48$ and Safe~PPO
+to $\approx +41$ within the 600k-step on-policy budget. The two PPO variants reach comparable
+returns despite Safe~PPO being penalized for speeding --- a sanity check that the
 constraint is not destroying task performance.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.85\linewidth]{fig3_comparison_return.pdf}
-  \caption{Shaped return as a function of environment steps. Single-seed results; re-run with
-  \texttt{scripts/run\_all.py} for mean$\pm$std bands across multiple seeds.}
+  \caption{Shaped return as a function of environment steps. Mean$\pm$std across 3 seeds
+  (shaded bands).}
   \label{fig:fig3}
 \end{figure}
 
 \paragraph{Safe~PPO trades a transient cost spike for steady-state safety.}
 Figure~\ref{fig:fig4} (and Fig.~\ref{fig:fig6}) shows the cost dynamics. During the first
-$\sim 95$ epochs the agent is still learning to climb the hill and rarely exceeds the speed
+$\sim 80$ epochs the agent is still learning to climb the hill and rarely exceeds the speed
 limit, so cost is near zero. The constraint becomes binding once the agent successfully reaches
-the flag (around epoch 100), at which point its preferred high-velocity trajectories accrue
+the flag (around epoch 80--120 depending on seed), at which point its preferred high-velocity trajectories accrue
 cost up to $\approx 40$. The Lagrangian multiplier (Fig.~\ref{fig:fig5}) then begins to grow,
-which pushes the policy toward slower, lower-cost solutions; cost stabilizes near $\sim 27$ ---
+which pushes the policy toward slower, lower-cost solutions; cost stabilizes near $\sim 32$ ---
 above the soft budget of 15, but no longer unbounded.
 
 \begin{figure}[t]
@@ -306,21 +308,21 @@ Lagrangian approach.
 \end{figure}
 
 \paragraph{Summary table.}
-Table~\ref{tab:final} summarizes the final-window performance of each agent on the seed shown.
+Table~\ref{tab:final} summarizes the final-window performance of each agent across 3 seeds (mean$\pm$std).
 
 \begin{table}[t]
   \centering
-  \caption{Final-window performance ($\downarrow$ = lower is better). Single-seed numbers from
-  the notebook execution; the full multi-seed table will be populated by \texttt{analysis.py}
-  after running \texttt{scripts/run\_all.py}.}
+  \caption{Final-window performance ($\downarrow$ = lower is better). Mean$\pm$std across 3 seeds
+  (\texttt{--seeds 0 1 2}). Final return is averaged over the last 30 episodes (DQN) or last
+  10 epochs (PPO, Safe~PPO).}
   \label{tab:final}
   \begin{tabular}{lcccc}
     \toprule
     Algorithm & Final return $\uparrow$ & Final cost $\downarrow$ & $\lambda$ end & Wall time \\
     \midrule
-    DQN          & $22.4$  & --     & --       & $2.5$~min \\
-    PPO          & $47.3$  & --     & --       & $18.2$~min \\
-    Safe~PPO     & $48.3$  & $27.1$ & $0.031$  & $15.2$~min \\
+    DQN          & $25.7 \pm 2.5$ & --             & --                & $2.6$~min \\
+    PPO          & $47.5 \pm 1.1$ & --             & --                & $7.2$~min \\
+    Safe~PPO     & $40.8 \pm 8.1$ & $31.7 \pm 4.0$ & $0.033 \pm 0.005$ & $5.5$~min \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -335,6 +337,21 @@ to act until reward shaping kicks in. Until the agent regularly reaches the flag
 hits the speed limit, so the cost-critic and the multiplier receive almost no signal. We see
 this as a flat $\lambda$ trajectory for the first $\sim 90$ epochs. Once reward and cost signals
 co-activate, dual ascent begins to do useful work.
+
+\paragraph{Cost-advantage normalization in the zero-cost regime.}
+A subtle implementation detail proved decisive for stability. Standardizing the cost advantage
+$\hat{A}^C$ to unit variance is actively harmful while the environment emits no cost: in
+\texttt{MountainCar} the agent incurs zero speed cost until it can already climb the hill, so
+throughout the $\sim 80$--$120$ epoch discovery phase $\hat{A}^C$ contains only cost-critic noise.
+Dividing it by its (tiny) standard deviation rescales that noise to the same magnitude as the
+reward advantage, and the $\lambda\hat{A}^C$ term then injects $\mathcal{O}(\lambda)$ gradient
+noise into the policy on \emph{every} update --- a perturbation that unconstrained PPO never sees.
+Empirically this delayed goal discovery by 10--40 epochs and, on one of three seeds, prevented it
+entirely ($-159$ vs.\ $+45$ return). Guarding the normalization so that $\hat{A}^C{=}0$ whenever
+the batch contains no cost --- letting Safe~PPO reduce exactly to PPO until a genuine violation
+occurs --- restores PPO-level discovery reliability across all three seeds (Table~\ref{tab:final})
+while leaving the constrained behavior unchanged. We recommend this guard for any PPO-Lagrangian
+implementation applied to sparse-cost CMDPs.
 
 \paragraph{Why initialize $\lambda$ small?}
 A large initial $\lambda$ would aggressively penalize any movement before the agent had learned
@@ -351,8 +368,8 @@ increasingly costly but never strictly impossible. A hard-constraint variant (e.
 comparison to future work.
 
 \paragraph{Limitations.}
-(i)~Only one seed is reported here; the released code includes a 3-seed runner whose results
-will replace Table~\ref{tab:final} once executed.
+(i)~We report 3 seeds; Safe~PPO still exhibits higher across-seed variance ($\pm 8$) than the
+PPO baseline ($\pm 1$), reflecting its greater sensitivity to exploration in the sparse-reward regime.
 (ii)~We do not run PPO under the constrained environment; the comparison in Fig.~\ref{fig:fig3}
 isolates the algorithmic contribution but understates the safety advantage of Safe~PPO.
 (iii)~\texttt{MountainCar} is a simple 2-dimensional environment; conclusions about constraint

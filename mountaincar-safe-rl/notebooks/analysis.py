@@ -74,10 +74,12 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=(6.0, 3.5))
 
     if dqn:
-        key_ep = "logged_episodes" if "logged_episodes" in dqn[0] else "episode_returns"
         key_y = "avg_reward_last30" if "avg_reward_last30" in dqn[0] else "episode_returns"
-        x = x_axis(dqn, key_ep) * 200 / 1000  # approx env steps in K
         y = stack(dqn, key_y)
+        if "logged_episodes" in dqn[0]:
+            x = x_axis(dqn, "logged_episodes") * 200 / 1000  # approx env steps in K
+        else:
+            x = np.arange(1, y.shape[1] + 1) * 200 / 1000
         plot_mean_band(ax, x, y, color="C0", lw=1.3, label="DQN")
 
     if ppo:
@@ -115,10 +117,10 @@ def main() -> None:
     if safe:
         fig, ax1 = plt.subplots(figsize=(6.0, 3.5))
         x_key = "logged_epochs" if "logged_epochs" in safe[0] else None
-        x = x_axis(safe, x_key) if x_key else np.arange(1, len(safe[0]["avg_reward"]) + 1)
         y_r = stack(safe, "avg_reward" if "avg_reward" in safe[0] else "epoch_returns")
         cost_key = "avg_cost" if "avg_cost" in safe[0] else "epoch_costs"
         y_c = stack(safe, cost_key)
+        x = x_axis(safe, x_key) if x_key else np.arange(1, y_r.shape[1] + 1)
 
         plot_mean_band(ax1, x, y_r, color="C2", lw=1.5, label="Return")
         ax1.set_xlabel("Epoch")
@@ -141,11 +143,12 @@ def main() -> None:
         plt.close()
 
     # --- Figure 5: Lambda trajectory ---
-    if safe and "lambda" in safe[0]:
+    lam_key = next((k for k in ("lambda", "epoch_lambdas") if safe and k in safe[0]), None)
+    if safe and lam_key:
         fig, ax = plt.subplots(figsize=(5.5, 3.2))
         x_key = "logged_epochs" if "logged_epochs" in safe[0] else None
-        x = x_axis(safe, x_key) if x_key else np.arange(1, len(safe[0]["lambda"]) + 1)
-        y = stack(safe, "lambda")
+        y = stack(safe, lam_key)
+        x = x_axis(safe, x_key) if x_key else np.arange(1, y.shape[1] + 1)
         plot_mean_band(ax, x, y, color="C4", lw=1.5, label=r"$\lambda$")
         ax.set_xlabel("Epoch")
         ax.set_ylabel(r"Lagrangian multiplier $\lambda$")
@@ -154,6 +157,24 @@ def main() -> None:
         ax.legend()
         plt.savefig(FIG / "fig5_lambda_trajectory.pdf")
         plt.savefig(FIG / "fig5_lambda_trajectory.png")
+        plt.close()
+
+    # --- Figure 6: cost curve vs budget ---
+    if safe:
+        fig, ax = plt.subplots(figsize=(5.5, 3.2))
+        x_key = "logged_epochs" if "logged_epochs" in safe[0] else None
+        cost_key = "avg_cost" if "avg_cost" in safe[0] else "epoch_costs"
+        y_c = stack(safe, cost_key)
+        x = x_axis(safe, x_key) if x_key else np.arange(1, y_c.shape[1] + 1)
+        plot_mean_band(ax, x, y_c, color="C3", lw=1.5, label="Safe PPO cost")
+        ax.axhline(15.0, color="black", lw=1, ls=":", label="Budget $d$=15")
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Safety Cost")
+        ax.set_title(f"Cost vs Budget ({len(safe)} seed{'s' if len(safe) != 1 else ''})")
+        ax.grid(alpha=0.3)
+        ax.legend()
+        plt.savefig(FIG / "fig6_cost_curve.pdf")
+        plt.savefig(FIG / "fig6_cost_curve.png")
         plt.close()
 
     print(f"Wrote figures to {FIG}")

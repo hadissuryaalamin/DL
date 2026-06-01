@@ -148,8 +148,15 @@ class SafePPORolloutBuffer:
         adv_r_std = float(np.std(self.adv_r_buf))
         self.adv_r_buf = (self.adv_r_buf - adv_r_mean) / (adv_r_std + 1e-8)
 
-        # Scale cost advantage by std only (no mean-centering, sign matters)
-        self.adv_c_buf = self.adv_c_buf / (float(np.std(self.adv_c_buf)) + 1e-8)
+        # Scale cost advantage by std only (no mean-centering, sign matters).
+        # Guard: when the batch has no real cost, adv_c is pure cost-critic noise;
+        # normalizing it would blow that noise up to unit variance and inject it
+        # into the policy gradient via the lambda term. Zero it instead so Safe PPO
+        # reduces to PPO until genuine constraint violations appear.
+        if np.any(self.cost_buf != 0.0):
+            self.adv_c_buf = self.adv_c_buf / (float(np.std(self.adv_c_buf)) + 1e-8)
+        else:
+            self.adv_c_buf[:] = 0.0
 
         data = dict(
             obs=self.obs_buf, act=self.act_buf, logp=self.logp_buf,

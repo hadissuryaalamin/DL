@@ -32,6 +32,7 @@ class PPOConfig:
     ent_coef: float = 0.01
     hidden_size: int = 64
     log_every: int = 5
+    record_every: int = 0  # if > 0, snapshot a rollout video every N epochs
 
 
 def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
@@ -71,6 +72,26 @@ def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
             v_opt.step()
 
         return float(loss_pi.item()), float(loss_v.item())
+
+    # Optional training-process video recorder
+    recorder = None
+    render_env = None
+    if cfg.record_every and cfg.record_every > 0:
+        from ..recording import TrainingRecorder
+        render_env = ShapedMountainCar(gym.make("MountainCar-v0", render_mode="rgb_array"))
+        recorder = TrainingRecorder(
+            out_path=Path(log_dir) / "training.mp4",
+            algorithm="ppo",
+            seed=seed,
+            hyperparams=dict(pi_lr=cfg.pi_lr, ent_coef=cfg.ent_coef,
+                             gamma=cfg.gamma, clip=cfg.clip_ratio),
+            total_epochs=cfg.epochs,
+        )
+
+        def _policy_fn(o):
+            with torch.no_grad():
+                logits = net.actor(torch.as_tensor(o, dtype=torch.float32))
+                return int(torch.argmax(logits).item())
 
     epoch_returns: list[float] = []
     epoch_solved_rates: list[float] = []
@@ -127,7 +148,21 @@ def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
             print(f"[PPO seed={seed}] Ep {epoch+1:3d} | avg ret {avg_ret:7.2f} | "
                   f"solved {solved_rate:.2f} | pi {loss_pi:6.3f} | v {loss_v:6.3f}")
 
+        if recorder is not None and (
+            (epoch + 1) % cfg.record_every == 0 or epoch == cfg.epochs - 1
+        ):
+            recorder.snapshot(
+                epoch=epoch + 1,
+                env=render_env,
+                policy_fn=_policy_fn,
+                returns_history=epoch_returns,
+                max_steps=cfg.max_ep_len,
+            )
+
     env.close()
+    if recorder is not None:
+        recorder.close()
+        render_env.close()
     duration = time.time() - start
 
     metrics = dict(

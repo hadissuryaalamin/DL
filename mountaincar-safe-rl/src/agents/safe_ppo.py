@@ -36,6 +36,7 @@ class SafePPOConfig:
     cost_limit: float = 15.0
     log_lambda_init: float = -3.0
     log_every: int = 5
+    record_every: int = 0  # if > 0, snapshot a rollout video every N epochs
 
 
 def train_safe_ppo(seed: int, cfg: SafePPOConfig, log_dir: str | Path) -> dict:
@@ -103,6 +104,29 @@ def train_safe_ppo(seed: int, cfg: SafePPOConfig, log_dir: str | Path) -> dict:
             new_lambda,
             actual_batch_cost,
         )
+
+    # Optional training-process video recorder
+    recorder = None
+    render_env = None
+    if cfg.record_every and cfg.record_every > 0:
+        from ..recording import TrainingRecorder
+        render_env = ConstrainedMountainCar(
+            gym.make("MountainCar-v0", render_mode="rgb_array"), max_speed=cfg.max_speed
+        )
+        recorder = TrainingRecorder(
+            out_path=Path(log_dir) / "training.mp4",
+            algorithm="safe_ppo",
+            seed=seed,
+            hyperparams=dict(lam_lr=cfg.lam_lr, log_lam0=cfg.log_lambda_init,
+                             cost_limit=cfg.cost_limit, pi_lr=cfg.pi_lr),
+            total_epochs=cfg.epochs,
+            cost_limit=cfg.cost_limit,
+        )
+
+        def _policy_fn(o):
+            with torch.no_grad():
+                logits = net.actor(torch.as_tensor(o, dtype=torch.float32))
+                return int(torch.argmax(logits).item())
 
     epoch_returns: list[float] = []
     epoch_costs: list[float] = []
@@ -178,7 +202,23 @@ def train_safe_ppo(seed: int, cfg: SafePPOConfig, log_dir: str | Path) -> dict:
                 f"solved {solved_rate:.2f} | viol {violations}"
             )
 
+        if recorder is not None and (
+            (epoch + 1) % cfg.record_every == 0 or epoch == cfg.epochs - 1
+        ):
+            recorder.snapshot(
+                epoch=epoch + 1,
+                env=render_env,
+                policy_fn=_policy_fn,
+                returns_history=epoch_returns,
+                costs_history=epoch_costs,
+                lam=current_lambda,
+                max_steps=cfg.max_ep_len,
+            )
+
     env.close()
+    if recorder is not None:
+        recorder.close()
+        render_env.close()
     duration = time.time() - start
 
     metrics = dict(

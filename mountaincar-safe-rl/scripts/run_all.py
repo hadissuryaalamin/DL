@@ -24,11 +24,16 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     parser.add_argument("--algos", type=str, nargs="+",
                         default=["dqn", "ppo", "safe_ppo"])
+    parser.add_argument("--record-every", type=int, default=None,
+                        help="snapshot training-process videos every N epochs (0=off)")
     args = parser.parse_args()
 
     dqn_cfg = DQNConfig(**yaml.safe_load(open(ROOT / "configs" / "dqn.yaml")))
     ppo_cfg = PPOConfig(**yaml.safe_load(open(ROOT / "configs" / "ppo.yaml")))
     safe_cfg = SafePPOConfig(**yaml.safe_load(open(ROOT / "configs" / "safe_ppo.yaml")))
+    if args.record_every is not None:
+        ppo_cfg.record_every = args.record_every
+        safe_cfg.record_every = args.record_every
 
     for seed in args.seeds:
         if "dqn" in args.algos:

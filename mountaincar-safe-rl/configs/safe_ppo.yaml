@@ -15,3 +15,4 @@ max_speed: 0.04
 cost_limit: 15.0
 log_lambda_init: -3.0
 log_every: 5
+record_every: 0   # >0 = save a training-process video every N epochs (e.g. 10)

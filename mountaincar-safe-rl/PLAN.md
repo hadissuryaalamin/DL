@@ -157,108 +157,108 @@ authoring, LaTeX builds, plot regeneration, and any non-torch analysis.
 ---
 ---
 
-# Part 2 — Rencana Eksperimen Safe PPO (PPO-Lagrangian)
+# Part 2 — Safe PPO Experiment Plan (PPO-Lagrangian)
 
-> Tujuan: menemukan konfigurasi yang memenuhi constraint (avg cost <= 15) tanpa
-> return collapse. Pendekatan: **tentukan dulu apakah constraint feasible**, baru
-> mantapkan base PPO, baru cari setting safety.
-> Konsolidasi dari `RL_experiment_plan.md` (v1) + `RL_experiment_plan_v2.md` (v2).
-> v2 menggantikan v1 sepenuhnya; isi di bawah adalah v2. Disimpan: 2026-06-05.
+> Goal: find a configuration that satisfies the constraint (avg cost <= 15) without
+> return collapse. Approach: **first determine whether the constraint is feasible**,
+> then stabilize the base PPO, then search for the safety setting.
+> Consolidated from `RL_experiment_plan.md` (v1) + `RL_experiment_plan_v2.md` (v2).
+> v2 fully supersedes v1; the content below is v2. Saved: 2026-06-05.
 
-## Apa yang berubah dari v1 (dan kenapa)
-Revisi ini dibuat setelah membaca kode (`src/envs.py`, `src/agents/safe_ppo.py`,
-`configs/safe_ppo.yaml`). Empat hal penting yang sebelumnya tidak eksplisit:
+## What changed from v1 (and why)
+This revision was written after reading the code (`src/envs.py`, `src/agents/safe_ppo.py`,
+`configs/safe_ppo.yaml`). Four important points that were not explicit before:
 
-1. **Cost itu proporsional, bukan hitungan step.** Di `ConstrainedMountainCar`:
-   `cost = (|v| - 0.04) * 100` saat `|v| > 0.04`, selain itu 0. Kecepatan
-   MountainCar dibatasi ±0.07, jadi cost per step maksimum = `(0.07-0.04)*100 = 3.0`.
-   "avg cost <= 15" = rata-rata total cost per episode <= 15.
-2. **Tension strukturalnya bisa dihitung, dan ketat.** Untuk solve, mobil harus
-   menyentuh ~0.07. Tiap step di kecepatan puncak = cost 3. Artinya anggaran 15
-   kira-kira hanya cukup untuk ~5 step di kecepatan puncak (atau lebih banyak step
-   di kecepatan sedang). Ini sempit — maka **feasibility harus dicek lebih dulu**,
-   bukan diasumsikan.
-3. **Bug lambda terkonfirmasi.** Kode lama meng-update lambda dengan
-   `loss_lambda = -exp(log_lambda) * (cost - cost_limit)`, sehingga gradien
-   terhadap `log_lambda` ikut dikali `exp(log_lambda)=lambda`. Saat lambda kecil
-   (config `log_lambda_init=-3.0` -> lambda~0.05), lambda nyaris tak bergerak =
-   self-suppression. Fix di bawah menghapus faktor ini (lihat bagian Perbaikan wajib).
-4. **Inkonsistensi metrik cost.** Lambda di-update memakai **discounted** cost
-   return (`ret_c.mean()`), tetapi yang dilaporkan/dicek terhadap limit adalah
-   cost episode **undiscounted** (`ep_ret_c`). Dua besaran berbeda. Harus disamakan
-   sebelum eksperimen, kalau tidak "lolos constraint" jadi ambigu (lihat Perbaikan wajib #2).
+1. **Cost is proportional, not a step count.** In `ConstrainedMountainCar`:
+   `cost = (|v| - 0.04) * 100` when `|v| > 0.04`, otherwise 0. MountainCar speed
+   is capped at ±0.07, so the maximum cost per step = `(0.07-0.04)*100 = 3.0`.
+   "avg cost <= 15" = average total cost per episode <= 15.
+2. **The structural tension is computable, and tight.** To solve, the car must reach
+   ~0.07. Each step at peak speed = cost 3. That means a budget of 15 is only enough
+   for ~5 steps at peak speed (or more steps at moderate speed). This is narrow — so
+   **feasibility must be checked first**, not assumed.
+3. **Lambda bug confirmed.** The old code updated lambda with
+   `loss_lambda = -exp(log_lambda) * (cost - cost_limit)`, so the gradient w.r.t.
+   `log_lambda` was also multiplied by `exp(log_lambda)=lambda`. When lambda is small
+   (config `log_lambda_init=-3.0` -> lambda~0.05), lambda barely moves =
+   self-suppression. The fix below removes this factor (see the Mandatory fixes section).
+4. **Cost metric inconsistency.** Lambda is updated using the **discounted** cost
+   return (`ret_c.mean()`), but what is reported/checked against the limit is the
+   **undiscounted** episode cost (`ep_ret_c`). Two different quantities. They must be
+   reconciled before the experiment, otherwise "passes the constraint" is ambiguous
+   (see Mandatory fix #2).
 
-## Prinsip
-- Di tiap tahap hanya variasikan 2 sumbu paling berdampak; bekukan sisanya.
-- 3 seed per kombinasi untuk screening; **5 seed untuk finalis** (B1-B3 dan
-  pemenang Tahap 2) karena std dari 3 sampel tidak reliable.
-- Bug update lambda diperbaiki dulu sebagai KONSTAN (bukan variabel eksperimen).
-- Return dan cost yang dilaporkan dibaca dari **evaluasi deterministik terpisah**
-  (lihat Protokol evaluasi), bukan dari batch rollout yang dipakai update.
+## Principles
+- At each stage vary only the 2 highest-impact axes; freeze the rest.
+- 3 seeds per combination for screening; **5 seeds for finalists** (B1-B3 and the
+  Stage 2 winner) because std from 3 samples is not reliable.
+- The lambda-update bug is fixed first as a CONSTANT (not an experiment variable).
+- Reported return and cost are read from a **separate deterministic evaluation**
+  (see Evaluation protocol), not from the rollout batch used for the update.
 
-## Perbaikan wajib sebelum mulai (fix, bukan di-grid)
+## Mandatory fixes before starting (fix, not gridded)
 
-**#1 — Update rule lambda agar tidak self-suppression.**
-Ganti blok update lambda di `safe_ppo.py` (`update()`):
+**#1 — Lambda update rule to avoid self-suppression.**
+Replace the lambda update block in `safe_ppo.py` (`update()`):
 
 ```python
 with torch.no_grad():
-    violation = (actual_batch_cost - cost_limit) / cost_limit  # ternormalisasi
-    log_lambda += lam_lr * violation       # tanpa faktor exp
+    violation = (actual_batch_cost - cost_limit) / cost_limit  # normalized
+    log_lambda += lam_lr * violation       # without the exp factor
     log_lambda.clamp_(min=-2.0, max=3.0)   # floor & ceiling -> lambda in [~0.135, ~20]
 lam = torch.exp(log_lambda)
 ```
 
-Catatan konsekuensi floor: `min=-2.0` berarti lambda tidak pernah turun di bawah
-~0.135, jadi selalu ada sedikit "pajak" pada return walau constraint sudah aman.
-Itu disengaja (mencegah lambda mati total), tapi sadari return Tahap 2 tidak akan
-pernah menyamai return Tahap 1 (lihat Aturan baca hasil).
+Note on the floor consequence: `min=-2.0` means lambda never drops below ~0.135, so
+there is always a small "tax" on return even when the constraint is already safe.
+That is intentional (to prevent lambda from dying entirely), but be aware that Stage 2
+return will never match Stage 1 return (see Reading the results).
 
-**#2 — Samakan besaran cost untuk update dan untuk pelaporan.**
-Pilih satu definisi dan pakai konsisten:
-- Rekomendasi: pakai **cost episode undiscounted** (`ep_ret_c`, sama dengan yang
-  dilaporkan) untuk update lambda juga — supaya "avg cost <= 15" yang dicek sama
-  persis dengan yang dioptimasi. Kalau tetap pakai discounted untuk update,
-  laporkan kedua angka di tabel dan tetapkan mana yang jadi syarat lolos.
+**#2 — Use the same cost quantity for both the update and the reporting.**
+Pick one definition and use it consistently:
+- Recommendation: use the **undiscounted episode cost** (`ep_ret_c`, the same one
+  reported) for the lambda update too — so that the "avg cost <= 15" being checked is
+  exactly what is optimized. If you keep using the discounted cost for the update,
+  report both numbers in the table and declare which one is the pass condition.
 
-**#3 — Catat diagnostik feasibility tiap epoch.**
-Kode sudah menyimpan `epoch_violations` (jumlah step ber-cost > 0) dan
-`epoch_costs`. Tambahkan juga, untuk episode yang **solved**, distribusi cost-nya
-(min/mean). Ini dipakai di Langkah 0 dan untuk interpretasi.
-
----
-
-## TAHAP 0 — Probe feasibility (jalankan paling dulu)
-Tujuan: jawab "apakah ada trajektori yang solve DENGAN cost <= 15?" sebelum
-menghabiskan puluhan run. Murah: ~2-4 run.
-
-Cara: ambil 1 base PPO yang sudah solve (atau hasil `run_ppo.py`), lalu
-- ukur distribusi **cost per episode pada episode yang solved** (bukan rata-rata
-  semua episode), atau
-- jalankan Safe PPO dengan **lambda besar tetap** (mis. lambda=10, tanpa update)
-  beberapa epoch dan lihat ke mana `avg_cost` konvergen sambil `solved_rate` tetap > 0.
-
-Keputusan:
-
-| Hasil probe | Interpretasi | Lanjut ke |
-|-------------|--------------|-----------|
-| cost-min episode solved <= 15 (konsisten) | feasible, masalah murni tuning | TAHAP 1 lalu 2, apa adanya |
-| cost-min episode solved > 15 (konsisten) | infeasible, tidak ada lambda yang menyelamatkan | Bagian "Kalau infeasible" |
-| solve hilang total saat lambda besar | constraint mematikan kemampuan solve | Bagian "Kalau infeasible" |
-
-Tulis hasil probe di sini sebelum lanjut:
-- cost-min episode solved (mean+-std antar episode): ____
-- solved_rate pada lambda=10: ____
-- Kesimpulan feasibility: ____
+**#3 — Log feasibility diagnostics each epoch.**
+The code already stores `epoch_violations` (number of steps with cost > 0) and
+`epoch_costs`. Also add, for **solved** episodes, the distribution of their cost
+(min/mean). This is used in Stage 0 and for interpretation.
 
 ---
 
-## TAHAP 1 — Base PPO (lambda Lagrangian = 0)
-Variasikan: lr x ent_coef. Tujuan: base yang MAMPU solve + STABIL, dan dicatat juga cost-nya.
+## STAGE 0 — Feasibility probe (run this first)
+Goal: answer "is there a trajectory that solves WITH cost <= 15?" before spending
+dozens of runs. Cheap: ~2-4 runs.
+
+How: take 1 base PPO that already solves (or the output of `run_ppo.py`), then
+- measure the distribution of **cost per episode on solved episodes** (not the average
+  over all episodes), or
+- run Safe PPO with a **large fixed lambda** (e.g. lambda=10, no update) for a few
+  epochs and see where `avg_cost` converges while `solved_rate` stays > 0.
+
+Decision:
+
+| Probe result | Interpretation | Proceed to |
+|--------------|----------------|------------|
+| cost-min of solved episodes <= 15 (consistent) | feasible, purely a tuning problem | STAGE 1 then 2, as is |
+| cost-min of solved episodes > 15 (consistent) | infeasible, no lambda can save it | "If infeasible" section |
+| solving disappears entirely under large lambda | the constraint kills the ability to solve | "If infeasible" section |
+
+Write the probe results here before continuing:
+- cost-min of solved episodes (mean+-std across episodes): ____
+- solved_rate at lambda=10: ____
+- Feasibility conclusion: ____
+
+---
+
+## STAGE 1 — Base PPO (Lagrangian lambda = 0)
+Vary: lr x ent_coef. Goal: a base that CAN solve + is STABLE, and record its cost too.
 Fixed: gamma=0.99, clip=0.2, lam_gae=0.95, steps=4000, epochs=150,
-target_kl~0.015, lr_critic=1e-3, ent default via shaping (height bonus + 100 bonus goal aktif).
+target_kl~0.015, lr_critic=1e-3, ent default via shaping (height bonus + 100 goal bonus active).
 
-| ID | lr   | ent_coef | Return(mean+-std) | Avg cost (info) | Collapse?(seed) | Stabil? | Top-3? |
+| ID | lr   | ent_coef | Return(mean+-std) | Avg cost (info) | Collapse?(seed) | Stable? | Top-3? |
 |----|------|----------|-------------------|-----------------|-----------------|---------|--------|
 | P1 | 1e-4 | 0.0      |                   |                 |                 |         |        |
 | P2 | 1e-4 | 0.01     |                   |                 |                 |         |        |
@@ -267,112 +267,114 @@ target_kl~0.015, lr_critic=1e-3, ent default via shaping (height bonus + 100 bon
 | P5 | 1e-3 | 0.0      |                   |                 |                 |         |        |
 | P6 | 1e-3 | 0.01     |                   |                 |                 |         |        |
 
-### Perubahan seleksi base (penting)
-- **Catat avg cost di Tahap 1 walau lambda=0.** Return tinggi di task ini = solve =
-  kecepatan ~0.07 = cost tinggi. Memilih base hanya dari return = memilih base yang
-  paling melanggar constraint, lalu menyeretnya ke Tahap 2 sebagai titik awal terburuk.
-- **Top-3 = base yang solve dengan skor seleksi terbaik**, di mana skor =
-  `mean_return - std_return` (aturan eksplisit, bukan penilaian mata), DAN cost tidak
-  ekstrem. Kalau dua base setara return, pilih yang cost-nya lebih rendah.
-- Tandai B1, B2, B3.
+### Base-selection change (important)
+- **Record avg cost in Stage 1 even though lambda=0.** High return on this task = solve =
+  speed ~0.07 = high cost. Picking a base from return alone = picking the base that
+  violates the constraint the most, then dragging it into Stage 2 as the worst possible
+  starting point.
+- **Top-3 = bases that solve with the best selection score**, where score =
+  `mean_return - std_return` (an explicit rule, not eyeballing), AND cost is not
+  extreme. If two bases tie on return, pick the one with lower cost.
+- Mark them B1, B2, B3.
 
-### Catatan exploration & gamma (conditional unfreeze)
-- Reward shaping sudah aktif (height bonus + 100 bonus goal), jadi eksplorasi tidak
-  sesparse MountainCar polos. Grid `ent_coef in {0, 0.01}` boleh dipakai apa adanya.
-- **Jika >= 4 dari 6 kombinasi gagal solve**, jangan utak-atik lr dulu. Unfreeze
-  satu sumbu sesuai urutan prioritas: (1) gamma 0.99 -> 0.999 (horizon efektif
-  gamma=0.99 ~100 step, episode 200 step), (2) ent_coef ke 0.05. Catat perubahan ini sebagai deviasi.
-
----
-
-## TAHAP 2 — Safe PPO di atas top-3
-Variasikan: lam_lr x log_lambda_init. cost_limit=15 (fixed). Update rule sudah diperbaiki (#1, #2).
-
-| ID  | Base | lam_lr | log_lambda_init | Avg cost(<=15?) | Return(mean+-std) | lambda final | Collapse? | Lolos? |
-|-----|------|--------|-----------------|-----------------|-------------------|--------------|-----------|--------|
-| S1  | B1   | 0.02   | -1.0            |                 |                   |              |           |        |
-| S2  | B1   | 0.02   |  0.0            |                 |                   |              |           |        |
-| S3  | B1   | 0.03   | -1.0            |                 |                   |              |           |        |
-| S4  | B1   | 0.03   |  0.0            |                 |                   |              |           |        |
-| S5  | B1   | 0.05   | -1.0            |                 |                   |              |           |        |
-| S6  | B1   | 0.05   |  0.0            |                 |                   |              |           |        |
-| S7  | B2   | 0.02   | -1.0            |                 |                   |              |           |        |
-| S8  | B2   | 0.02   |  0.0            |                 |                   |              |           |        |
-| S9  | B2   | 0.03   | -1.0            |                 |                   |              |           |        |
-| S10 | B2   | 0.03   |  0.0            |                 |                   |              |           |        |
-| S11 | B2   | 0.05   | -1.0            |                 |                   |              |           |        |
-| S12 | B2   | 0.05   |  0.0            |                 |                   |              |           |        |
-| S13 | B3   | 0.02   | -1.0            |                 |                   |              |           |        |
-| S14 | B3   | 0.02   |  0.0            |                 |                   |              |           |        |
-| S15 | B3   | 0.03   | -1.0            |                 |                   |              |           |        |
-| S16 | B3   | 0.03   |  0.0            |                 |                   |              |           |        |
-| S17 | B3   | 0.05   | -1.0            |                 |                   |              |           |        |
-| S18 | B3   | 0.05   |  0.0            |                 |                   |              |           |        |
-
-Catatan: rentang `lam_lr` {0.02, 0.03, 0.05} sempit (2.5x). Kalau dinamika lambda
-(lihat Aturan baca hasil) menunjukkan lambda terlalu lamban / terlalu liar di
-seluruh grid, ganti rentang jadi {0.01, 0.03, 0.1} ketimbang menambah baris.
-`log_lambda_init` mungkin sumbu rendah-dampak; kalau hasil S*-ganjil vs genap nyaris
-sama di semua base, init bisa difix ke -1.0 dan sumbu itu diganti hal lain.
-
-### Protokol evaluasi (berlaku Tahap 1 & 2)
-- Return dan avg cost untuk **tabel** dibaca dari evaluasi **deterministik**
-  (argmax action) atas >= 20 episode, terpisah dari rollout training.
-- lambda final = nilai lambda di akhir training (rata-rata 10 epoch terakhir).
-
-### Definisi terukur (hilangkan penilaian mata)
-- **Collapse** = return turun > 30% dari nilai puncak yang pernah dicapai DAN tidak
-  pulih sampai >= 90% puncak dalam 20 epoch terakhir. (Sesuaikan 30% bila perlu,
-  tapi tetapkan SEBELUM membaca hasil.)
-- **Stabil** = tidak collapse pada ketiga seed.
-- **Lolos** = avg cost <= 15 (pada metrik yang dipilih di #2) DAN tidak collapse.
-
-### Aturan baca hasil
-- Avg cost <= 15 = syarat utama lolos constraint.
-- Return = bandingkan dengan return base di Tahap 1 (berapa yang dikorbankan).
-  Ingat floor lambda: bahkan run "aman" akan sedikit di bawah return base.
-- lambda final = sanity check: cost masih >15 tapi lambda kecil -> naikkan lam_lr;
-  lambda meledak (mentok ceiling ~20) + return collapse -> turunkan lam_lr.
-- Osilasi lambda yang besar = pertimbangkan damping (lihat Catatan teknis), jangan
-  langsung salahkan nilai lam_lr.
-- **Pemenang akhir** = baris Lolos dengan return mean tertinggi, std terkecil;
-  jalankan ulang pemenang dengan 5 seed sebelum diklaim final.
+### Exploration & gamma note (conditional unfreeze)
+- Reward shaping is already active (height bonus + 100 goal bonus), so exploration is
+  not as sparse as plain MountainCar. The grid `ent_coef in {0, 0.01}` can be used as is.
+- **If >= 4 of the 6 combinations fail to solve**, don't fiddle with lr first. Unfreeze
+  one axis in priority order: (1) gamma 0.99 -> 0.999 (effective horizon of
+  gamma=0.99 ~100 steps, episode 200 steps), (2) ent_coef to 0.05. Record this change
+  as a deviation.
 
 ---
 
-## Kalau infeasible — relaksasi yang berprinsip (dari Tahap 0)
-Kalau Tahap 0 menunjukkan tidak ada trajektori solve dengan cost <= 15, JANGAN
-jalankan grid Tahap 2 (54 run yang pasti gagal). Pilih relaksasi, urut dari paling jujur:
+## STAGE 2 — Safe PPO on top of the top-3
+Vary: lam_lr x log_lambda_init. cost_limit=15 (fixed). Update rule already fixed (#1, #2).
 
-1. **Naikkan cost_limit** ke sedikit di atas cost-min-feasible hasil Tahap 0. Limit
-   harusnya turunan dari fisika task, bukan angka yang ditetapkan duluan.
-2. **Naikkan ambang `max_speed`** dari 0.04 mendekati nilai yang task butuhkan. Kalau
-   tujuan cost adalah "jangan ngebut tanpa perlu", 0.04 menghukum kecepatan yang
-   memang wajib untuk solve.
-3. **Redefinisi cost**: hukum hanya kecepatan tinggi yang tidak perlu (mis. di luar
-   fase membangun momentum), bukan setiap step cepat.
-4. **Laporkan sebagai Pareto front**: sweep cost_limit {12, 15, 20, 25} dan tampilkan
-   kurva return-vs-cost. Kalau tidak ada titik "aman DAN solve", kurva itu sendiri
-   adalah hasil yang valid dan jujur.
+| ID  | Base | lam_lr | log_lambda_init | Avg cost(<=15?) | Return(mean+-std) | lambda final | Collapse? | Pass? |
+|-----|------|--------|-----------------|-----------------|-------------------|--------------|-----------|-------|
+| S1  | B1   | 0.02   | -1.0            |                 |                   |              |           |       |
+| S2  | B1   | 0.02   |  0.0            |                 |                   |              |           |       |
+| S3  | B1   | 0.03   | -1.0            |                 |                   |              |           |       |
+| S4  | B1   | 0.03   |  0.0            |                 |                   |              |           |       |
+| S5  | B1   | 0.05   | -1.0            |                 |                   |              |           |       |
+| S6  | B1   | 0.05   |  0.0            |                 |                   |              |           |       |
+| S7  | B2   | 0.02   | -1.0            |                 |                   |              |           |       |
+| S8  | B2   | 0.02   |  0.0            |                 |                   |              |           |       |
+| S9  | B2   | 0.03   | -1.0            |                 |                   |              |           |       |
+| S10 | B2   | 0.03   |  0.0            |                 |                   |              |           |       |
+| S11 | B2   | 0.05   | -1.0            |                 |                   |              |           |       |
+| S12 | B2   | 0.05   |  0.0            |                 |                   |              |           |       |
+| S13 | B3   | 0.02   | -1.0            |                 |                   |              |           |       |
+| S14 | B3   | 0.02   |  0.0            |                 |                   |              |           |       |
+| S15 | B3   | 0.03   | -1.0            |                 |                   |              |           |       |
+| S16 | B3   | 0.03   |  0.0            |                 |                   |              |           |       |
+| S17 | B3   | 0.05   | -1.0            |                 |                   |              |           |       |
+| S18 | B3   | 0.05   |  0.0            |                 |                   |              |           |       |
+
+Note: the `lam_lr` range {0.02, 0.03, 0.05} is narrow (2.5x). If the lambda dynamics
+(see Reading the results) show lambda too sluggish / too wild across the whole grid,
+switch the range to {0.01, 0.03, 0.1} rather than adding rows. `log_lambda_init` may be
+a low-impact axis; if odd vs. even S* results are nearly the same across all bases, init
+can be fixed to -1.0 and that axis replaced with something else.
+
+### Evaluation protocol (applies to Stage 1 & 2)
+- Return and avg cost for the **table** are read from a **deterministic** evaluation
+  (argmax action) over >= 20 episodes, separate from the training rollout.
+- lambda final = the lambda value at the end of training (average of the last 10 epochs).
+
+### Measurable definitions (remove eyeballing)
+- **Collapse** = return drops > 30% from the peak value ever reached AND does not
+  recover to >= 90% of the peak within the last 20 epochs. (Adjust the 30% if needed,
+  but set it BEFORE reading the results.)
+- **Stable** = no collapse on any of the three seeds.
+- **Pass** = avg cost <= 15 (on the metric chosen in #2) AND no collapse.
+
+### Reading the results
+- Avg cost <= 15 = the primary condition for passing the constraint.
+- Return = compare against the base return in Stage 1 (how much was sacrificed).
+  Remember the lambda floor: even a "safe" run will be slightly below the base return.
+- lambda final = sanity check: cost still >15 but lambda small -> raise lam_lr;
+  lambda explodes (hits the ~20 ceiling) + return collapses -> lower lam_lr.
+- Large lambda oscillation = consider damping (see Technical notes), don't immediately
+  blame the lam_lr value.
+- **Final winner** = the Pass row with the highest mean return and smallest std;
+  re-run the winner with 5 seeds before claiming it final.
 
 ---
 
-## Catatan teknis (opsional, untuk diagnosis)
-- Update lambda saat ini murni P-controller (gradient ascent). Rawan osilasi. Kalau
-  lambda berayun keras, pakai PID-Lagrangian (tambah suku integral/derivatif) atau
-  turunkan lam_lr; ini bukan variabel grid, hanya perbaikan kalau muncul masalah.
-- Cek skala: lambda ceiling ~20 vs skala reward (shaping + bonus 100). Kalau
-  `lambda * cost` mendominasi reward, collapse bukan soal tuning tapi soal skala.
+## If infeasible — principled relaxation (from Stage 0)
+If Stage 0 shows there is no solving trajectory with cost <= 15, DO NOT run the Stage 2
+grid (54 runs that will certainly fail). Pick a relaxation, ordered from most honest:
 
-## Anggaran eksperimen
-- Tahap 0: ~2-4 run (gating, wajib lebih dulu)
-- Tahap 1: 6 kombinasi x 3 seed = 18 run (+ rerun finalis 5 seed)
-- Tahap 2: 18 kombinasi x 3 seed = 54 run (+ rerun pemenang 5 seed)
-- Total ~ 76-80 run, TAPI Tahap 2 hanya dijalankan kalau Tahap 0 = feasible.
+1. **Raise cost_limit** to slightly above the cost-min-feasible from Stage 0. The limit
+   should be derived from the task physics, not a number set in advance.
+2. **Raise the `max_speed` threshold** from 0.04 closer to what the task requires. If the
+   point of the cost is "don't speed unnecessarily", 0.04 penalizes speed that is in fact
+   required to solve.
+3. **Redefine cost**: penalize only unnecessary high speed (e.g. outside the
+   momentum-building phase), not every fast step.
+4. **Report as a Pareto front**: sweep cost_limit {12, 15, 20, 25} and show the
+   return-vs-cost curve. If there is no "safe AND solve" point, that curve is itself a
+   valid and honest result.
 
-## Catatan jujur
-Ambang kecepatan 0.04 melawan kebutuhan task (butuh ~0.07 untuk capai goal), dan
-karena cost proporsional, anggaran 15 hanya memberi ruang ~5 step di kecepatan
-puncak. Itu sebabnya Tahap 0 (probe feasibility) ada di depan: kalau return ikut
-turun di semua seed setelah fix, itu sinyal tension struktural — longgarkan
-cost_limit/ambang lewat bagian "Kalau infeasible", bukan terus menyetel lambda.
+---
+
+## Technical notes (optional, for diagnosis)
+- The lambda update is currently a pure P-controller (gradient ascent). Prone to
+  oscillation. If lambda swings hard, use PID-Lagrangian (add integral/derivative terms)
+  or lower lam_lr; this is not a grid variable, only a fix if the problem appears.
+- Check the scale: lambda ceiling ~20 vs. reward scale (shaping + 100 bonus). If
+  `lambda * cost` dominates the reward, collapse is not about tuning but about scale.
+
+## Experiment budget
+- Stage 0: ~2-4 runs (gating, mandatory first)
+- Stage 1: 6 combinations x 3 seeds = 18 runs (+ 5-seed rerun of finalists)
+- Stage 2: 18 combinations x 3 seeds = 54 runs (+ 5-seed rerun of the winner)
+- Total ~ 76-80 runs, BUT Stage 2 only runs if Stage 0 = feasible.
+
+## Honest note
+The 0.04 speed threshold fights the task's requirement (it needs ~0.07 to reach the
+goal), and because cost is proportional, a budget of 15 only allows ~5 steps at peak
+speed. That is why Stage 0 (feasibility probe) comes first: if return drops on all seeds
+after the fix, that is a signal of structural tension — relax the cost_limit/threshold
+via the "If infeasible" section, rather than continuing to tune lambda.

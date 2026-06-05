@@ -13,6 +13,13 @@ paper/*.toc
 paper/*.fls
 paper/*.fdb_latexmk
 paper/*.synctex.gz
+module/*.aux
+module/*.log
+module/*.out
+module/*.toc
+module/*.fls
+module/*.fdb_latexmk
+module/*.synctex.gz
 
 # Training artifacts that are large and reproducible
 results/**/*.pt

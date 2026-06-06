@@ -31,6 +31,7 @@ class PPOConfig:
     lam: float = 0.95
     ent_coef: float = 0.01
     hidden_size: int = 64
+    max_speed: float = 0.04  # threshold for passive cost logging (no effect on training)
     log_every: int = 5
     record_every: int = 0  # if > 0, snapshot a rollout video every N epochs
 
@@ -94,13 +95,15 @@ def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
                 return int(torch.argmax(logits).item())
 
     epoch_returns: list[float] = []
+    epoch_costs: list[float] = []  # passive: speeding cost, logged but not optimized
     epoch_solved_rates: list[float] = []
     obs, _ = env.reset()
-    ep_ret, ep_len = 0.0, 0
+    ep_ret, ep_cost, ep_len = 0.0, 0.0, 0
     start = time.time()
 
     for epoch in range(cfg.epochs):
         rets: list[float] = []
+        costs: list[float] = []
         solved = 0
         completed_eps = 0
 
@@ -110,6 +113,8 @@ def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
                 act, logp, val = net.get_action(obs_tensor)
 
             next_obs, rew, term, trunc, _ = env.step(act)
+            vel = abs(float(next_obs[1]))
+            ep_cost += (vel - cfg.max_speed) * 100.0 if vel > cfg.max_speed else 0.0
             ep_ret += float(rew)
             ep_len += 1
 
@@ -132,21 +137,25 @@ def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
 
                 if terminal:
                     rets.append(ep_ret)
+                    costs.append(ep_cost)
                     solved += int(bool(term))
                     completed_eps += 1
 
                 obs, _ = env.reset()
-                ep_ret, ep_len = 0.0, 0
+                ep_ret, ep_cost, ep_len = 0.0, 0.0, 0
 
         loss_pi, loss_v = update()
         avg_ret = float(np.mean(rets)) if rets else 0.0
+        avg_cost = float(np.mean(costs)) if costs else 0.0
         solved_rate = (solved / completed_eps) if completed_eps else 0.0
         epoch_returns.append(avg_ret)
+        epoch_costs.append(avg_cost)
         epoch_solved_rates.append(solved_rate)
 
         if (epoch + 1) % cfg.log_every == 0:
             print(f"[PPO seed={seed}] Ep {epoch+1:3d} | avg ret {avg_ret:7.2f} | "
-                  f"solved {solved_rate:.2f} | pi {loss_pi:6.3f} | v {loss_v:6.3f}")
+                  f"cost {avg_cost:6.2f} | solved {solved_rate:.2f} | "
+                  f"pi {loss_pi:6.3f} | v {loss_v:6.3f}")
 
         if recorder is not None and (
             (epoch + 1) % cfg.record_every == 0 or epoch == cfg.epochs - 1
@@ -156,6 +165,7 @@ def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
                 env=render_env,
                 policy_fn=_policy_fn,
                 returns_history=epoch_returns,
+                costs_history=epoch_costs,
                 max_steps=cfg.max_ep_len,
             )
 
@@ -170,6 +180,7 @@ def train_ppo(seed: int, cfg: PPOConfig, log_dir: str | Path) -> dict:
         seed=seed,
         epochs=cfg.epochs,
         epoch_returns=epoch_returns,
+        epoch_costs=epoch_costs,
         epoch_solved_rates=epoch_solved_rates,
         wall_time_sec=duration,
         config=cfg.__dict__,

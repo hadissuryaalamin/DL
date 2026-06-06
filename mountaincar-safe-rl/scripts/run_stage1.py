@@ -85,35 +85,55 @@ def train_grid(configs: list[str], seeds: list[int], record_every: int,
             train_ppo(seed=seed, cfg=cfg, log_dir=out)
 
 
-def _seed_final(metrics_path: Path) -> tuple[float, float]:
-    """Return (mean last-K return, mean last-K solved rate) for one seed."""
+def _fmt_dur(seconds: float) -> str:
+    """Human-readable duration; '—' for missing values."""
+    if seconds != seconds:  # NaN
+        return "—"
+    if seconds >= 3600:
+        h = int(seconds // 3600)
+        mm = int((seconds % 3600) // 60)
+        return f"{h}h {mm:02d}m"
+    return f"{seconds / 60:.1f} min"
+
+
+def _seed_final(metrics_path: Path) -> tuple[float, float, float, float]:
+    """Return (mean last-K return, solved rate, cost, wall_time_sec) for one seed."""
     d = json.load(open(metrics_path))
     er = d.get("epoch_returns", [])
     sr = d.get("epoch_solved_rates", [])
+    ec = d.get("epoch_costs", [])  # present once PPO logs passive cost
     r = stats.mean(er[-LAST_K:]) if er else float("nan")
     s = stats.mean(sr[-LAST_K:]) if sr else float("nan")
-    return r, s
+    c = stats.mean(ec[-LAST_K:]) if ec else float("nan")
+    t = float(d.get("wall_time_sec", float("nan")))
+    return r, s, c, t
 
 
 def summarize(configs: list[str], seeds: list[int], out_root: Path) -> str:
     """Build the P1-P6 selection table as markdown and return it."""
     rows = []
     for cid in configs:
-        rets, sols = [], []
+        rets, sols, costs, times = [], [], [], []
         for seed in seeds:
             mp = _run_dir(out_root, cid, seed) / "metrics.json"
             if mp.exists():
-                r, s = _seed_final(mp)
+                r, s, c, t = _seed_final(mp)
                 rets.append(r)
                 sols.append(s)
+                costs.append(c)
+                times.append(t)
         if not rets:
             rows.append((cid, None))
             continue
         mean_r = stats.mean(rets)
         std_r = stats.pstdev(rets) if len(rets) > 1 else 0.0
         mean_s = stats.mean(sols)
+        mean_c = stats.mean(costs)
+        valid_t = [t for t in times if t == t]  # drop NaN
+        mean_t = stats.mean(valid_t) if valid_t else float("nan")
         rows.append((cid, dict(mean_r=mean_r, std_r=std_r, mean_s=mean_s,
-                               score=mean_r - std_r, n=len(rets))))
+                               mean_c=mean_c, score=mean_r - std_r,
+                               mean_t=mean_t, sum_t=sum(valid_t), n=len(rets))))
 
     # Eligible = actually solves (mean solved-rate >= 0.5); rank by score.
     eligible = [(cid, m) for cid, m in rows if m and m["mean_s"] >= 0.5]
@@ -125,22 +145,31 @@ def summarize(configs: list[str], seeds: list[int], out_root: Path) -> str:
         "",
         f"Final figures = mean over the last {LAST_K} epochs, across "
         f"{len(seeds)} seeds. Score = mean_return - std_return. "
-        "Top-3 = highest score among configs that solve (mean solved >= 0.5).",
+        "Top-3 = highest score among configs that solve (mean solved >= 0.5). "
+        "Avg cost is logged passively (PPO does not optimize it) — use it as a "
+        "tie-breaker: among similar returns, prefer the lower-cost base.",
         "",
-        "| ID | lr | ent_coef | Return (mean±std) | Solved | Score | Top-3 |",
-        "|----|-----|----------|-------------------|--------|-------|-------|",
+        "| ID | lr | ent_coef | Return (mean±std) | Avg cost | Solved | Score | Time/run | Top-3 |",
+        "|----|-----|----------|-------------------|----------|--------|-------|----------|-------|",
     ]
     for cid, m in rows:
         lr = GRID[cid]["pi_lr"]
         ent = GRID[cid]["ent_coef"]
         if m is None:
-            lines.append(f"| {cid} | {lr:g} | {ent:g} | (no results) | — | — | |")
+            lines.append(f"| {cid} | {lr:g} | {ent:g} | (no results) | — | — | — | — | |")
             continue
         mark = "✅" if cid in top3 else ""
         lines.append(
             f"| {cid} | {lr:g} | {ent:g} | {m['mean_r']:.1f} ± {m['std_r']:.1f} "
-            f"| {m['mean_s']:.0%} | {m['score']:.1f} | {mark} |"
+            f"| {m['mean_c']:.1f} | {m['mean_s']:.0%} | {m['score']:.1f} "
+            f"| {_fmt_dur(m['mean_t'])} | {mark} |"
         )
+
+    total_sec = sum(m["sum_t"] for _, m in rows if m and m["sum_t"] == m["sum_t"])
+    n_runs = sum(m["n"] for _, m in rows if m)
+    if n_runs:
+        lines += ["", f"**Total training time:** {_fmt_dur(total_sec)} "
+                  f"across {n_runs} runs."]
     if top3:
         ordered = [cid for cid, _ in eligible[:3]]
         lines += ["", f"**Selected base policies:** "
@@ -149,6 +178,30 @@ def summarize(configs: list[str], seeds: list[int], out_root: Path) -> str:
     else:
         lines += ["", "**No config solves yet** — see Stage 1 unfreeze rules in PLAN.md."]
     return "\n".join(lines) + "\n"
+
+
+def select_top3(configs: list[str], seeds: list[int], out_root: Path) -> list[str]:
+    """Return up to 3 config ids that solve (mean solved >= 0.5), ranked by
+    score = mean_return - std_return. Shared with the Stage 2 runner so both
+    use one consistent base-selection rule."""
+    scored = []
+    for cid in configs:
+        rets, sols = [], []
+        for seed in seeds:
+            mp = _run_dir(out_root, cid, seed) / "metrics.json"
+            if mp.exists():
+                r, s, _, _ = _seed_final(mp)
+                rets.append(r)
+                sols.append(s)
+        if not rets:
+            continue
+        mean_r = stats.mean(rets)
+        std_r = stats.pstdev(rets) if len(rets) > 1 else 0.0
+        mean_s = stats.mean(sols)
+        if mean_s >= 0.5:
+            scored.append((cid, mean_r - std_r))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [cid for cid, _ in scored[:3]]
 
 
 def build_videos(configs: list[str], seeds: list[int], out_root: Path,

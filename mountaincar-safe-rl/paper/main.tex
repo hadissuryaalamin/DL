@@ -1,14 +1,8 @@
 \documentclass{article}
 
-% NeurIPS-style preamble. If you have the official `neurips_2024.sty` file,
-% replace the \usepackage[final]{article} block below with:
-%   \usepackage[final]{neurips_2024}
-% For now this uses a clean self-contained article style that compiles anywhere.
-
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[margin=1in]{geometry}
-% \usepackage{microtype}  % requires extra fonts on minimal texlive installs
 \usepackage{amsmath,amssymb,amsthm,bm}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -320,7 +314,8 @@ the PPO objective --- is exactly the information needed to anticipate Stage~2 fe
 \end{figure}
 
 \subsection{Stage 2: safety sweep and the role of the base}
-Figure~\ref{fig:stage2} plots all 18 constrained configurations in the cost--return plane.
+Table~\ref{tab:stage2} lists all 18 constrained configurations (S1--S18) and
+Figure~\ref{fig:stage2} plots them in the cost--return plane.
 The result is stark and organized entirely by base. \textbf{Every one of the six P4-based
 configurations fails the constraint}, clustering at cost $29$--$34$ regardless of $\alpha_\lambda$
 or $\ell_0$: a base that overspeeds at cost $\approx 29$ when unconstrained cannot be dragged
@@ -338,13 +333,47 @@ over-constraint --- S8 (P5, $\alpha_\lambda{=}0.02$, $\ell_0{=}0$) drives cost t
 collapses on one seed ($-27.2 \pm 52.5$). The winner therefore pairs a low-cost base with a warm
 multiplier start and the largest sweep $\alpha_\lambda{=}0.05$.
 
+\begin{table}[t]
+  \centering
+  \caption{Stage 2 (Safe~PPO) sweep. Final-window (last 10 epochs) mean$\pm$std over 3 seeds, with
+  $d{=}15$ fixed. \emph{Pass} requires cost $\le 15$ and no seed collapse. S6 (bold) is the winner;
+  S8 meets the cost numerically but collapses on one seed. Bases: B1=P6, B2=P5, B3=P4.}
+  \label{tab:stage2}
+  \begin{tabular}{llcccccc}
+    \toprule
+    ID & Base & $\alpha_\lambda$ & $\ell_0$ & Avg cost & $\le 15$ & Return & Pass \\
+    \midrule
+    S1 & P6 & 0.02 & $-1$ & $19.2$ & no  & $46.0 \pm 1.3$ & \\
+    S2 & P6 & 0.02 & $0$  & $18.9$ & no  & $29.6 \pm 8.8$ & \\
+    S3 & P6 & 0.03 & $-1$ & $16.0$ & no  & $47.9 \pm 0.8$ & \\
+    S4 & P6 & 0.03 & $0$  & $14.7$ & yes & $46.8 \pm 0.1$ & \checkmark \\
+    S5 & P6 & 0.05 & $-1$ & $22.1$ & no  & $45.6 \pm 2.8$ & \\
+    \textbf{S6} & P6 & 0.05 & $0$ & $\mathbf{15.0}$ & yes & $\mathbf{47.3 \pm 0.3}$ & \checkmark \\
+    \midrule
+    S7  & P5 & 0.02 & $-1$ & $17.1$ & no  & $46.9 \pm 3.5$   & \\
+    S8  & P5 & 0.02 & $0$  & $2.7$  & yes & $-27.2 \pm 52.5$ & \\
+    S9  & P5 & 0.03 & $-1$ & $17.7$ & no  & $47.8 \pm 1.0$   & \\
+    S10 & P5 & 0.03 & $0$  & $11.6$ & yes & $40.2 \pm 8.3$   & \checkmark \\
+    S11 & P5 & 0.05 & $-1$ & $17.4$ & no  & $47.5 \pm 1.3$   & \\
+    S12 & P5 & 0.05 & $0$  & $16.3$ & no  & $48.1 \pm 0.2$   & \\
+    \midrule
+    S13 & P4 & 0.02 & $-1$ & $32.1$ & no & $39.4 \pm 7.5$  & \\
+    S14 & P4 & 0.02 & $0$  & $33.9$ & no & $32.8 \pm 12.2$ & \\
+    S15 & P4 & 0.03 & $-1$ & $31.6$ & no & $36.5 \pm 11.5$ & \\
+    S16 & P4 & 0.03 & $0$  & $29.2$ & no & $35.4 \pm 15.8$ & \\
+    S17 & P4 & 0.05 & $-1$ & $32.6$ & no & $38.4 \pm 9.8$  & \\
+    S18 & P4 & 0.05 & $0$  & $33.5$ & no & $37.3 \pm 10.3$ & \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.6\linewidth]{fig5_stage2_scatter.pdf}
+  \includegraphics[width=0.66\linewidth]{fig5_stage2_scatter.pdf}
   \caption{Stage 2: final cost vs.\ return for all 18 Safe-PPO configurations (3-seed mean),
-  colored by base. Filled circles pass (cost $\le 15$, no collapse); crosses fail. All P4-based
-  configs (red) sit far past the budget; the feasible passing configs are built on the low-cost
-  bases P6 and P5.}
+  colored by base (P6 blue, P5 green, P4 red). Filled circles pass (cost $\le 15$, no collapse);
+  crosses fail. All P4-based configs sit far past the budget; the feasible passing configs are
+  built on the low-cost bases P6 and P5. S8 meets the cost numerically but collapses.}
   \label{fig:stage2}
 \end{figure}
 
@@ -390,9 +419,9 @@ performance.
 
 \begin{table}[t]
   \centering
-  \caption{Final-window performance ($\downarrow$ = lower is better). Mean$\pm$std across 3 seeds
-  (\texttt{--seeds 0 1 2}). Final return is averaged over the last 50 episodes (DQN) or last
-  10 epochs (PPO, Safe~PPO). PPO is the selected base P6; Safe~PPO is the winner S6.}
+  \caption{Final-window performance. Mean$\pm$std across 3 seeds (\texttt{--seeds 0 1 2}). Final
+  return is averaged over the last 50 episodes (DQN) or last 10 epochs (PPO, Safe~PPO). PPO is the
+  selected base P6; Safe~PPO is the winner S6.}
   \label{tab:final}
   \begin{tabular}{lcccc}
     \toprule
@@ -488,4 +517,3 @@ variant, hard-constraint comparisons, and extension to higher-dimensional CMDP b
 \bibliography{references}
 
 \end{document}
-                                                                                                                                                                                                                                                                          

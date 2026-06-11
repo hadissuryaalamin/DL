@@ -10,18 +10,11 @@
 \usepackage{subcaption}
 \usepackage{float}
 \usepackage{hyperref}
-\usepackage[numbers,sort&compress]{natbib}
+\usepackage{cite}
 \usepackage{xcolor}
 \hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!70!black}
 
 \graphicspath{{figures/}}
-
-% Reference macros (per writing-guideline: define macros for Eq./Fig./Tab./Sec.
-% references so the style can be changed in one place).
-\newcommand{\eqnref}[1]{Eq.~\eqref{#1}}
-\newcommand{\figref}[1]{Figure~\ref{#1}}
-\newcommand{\tabref}[1]{Table~\ref{#1}}
-\newcommand{\secref}[1]{Section~\ref{#1}}
 
 \title{Safe Proximal Policy Optimization for Sparse-Reward Classic Control: \\
 A PPO-Lagrangian Study on \texttt{MountainCar}}
@@ -46,7 +39,7 @@ function, and adapts the Lagrangian multiplier $\lambda$ via dual ascent against
 We conduct a structured two-stage hyperparameter study: Stage~1 screens six PPO base
 configurations (learning rate $\times$ entropy) and selects the top three by a stability-aware
 score; Stage~2 sweeps the safety hyperparameters ($\lambda$ learning rate and initial multiplier)
-on top of those bases, giving 18 constrained configurations over three seeds each.
+on top of those bases, giving 18 constrained configurations over 3 seeds each.
 On \texttt{MountainCar-v0} with a maximum-speed constraint $|\dot{x}| \le 0.04$ and budget $d{=}15$,
 the best Safe~PPO configuration reaches a shaped return of $47.3 \pm 0.3$ --- statistically
 indistinguishable from the unconstrained PPO base ($47.8$) --- while satisfying the cost budget
@@ -62,15 +55,16 @@ We release the full code, configurations, training-process videos, and analysis 
 \section{Introduction}
 \label{sec:intro}
 
-Reinforcement learning (RL) has produced impressive empirical results across games and control~\citep{mnih2015dqn,schulman2017ppo}, but standard RL implicitly assumes that the agent is free to
+Reinforcement learning (RL) has produced impressive empirical results across games and control
+\cite{mnih2015dqn,schulman2017ppo}, but standard RL implicitly assumes that the agent is free to
 maximize reward irrespective of side effects. Many practical applications --- robotics, autonomous
 driving, healthcare --- require the agent to satisfy additional safety or operational
-constraints. Constrained Markov Decision Processes (CMDPs)~\citep{altman1999cmdp} formalize this
+constraints. Constrained Markov Decision Processes (CMDPs) \cite{altman1999cmdp} formalize this
 setting by decorating each transition with a scalar \emph{cost} signal, and asking the agent to
 maximize return subject to a constraint on expected cumulative cost.
 
-Despite a rich body of constrained-RL work~\citep{achiam2017cpo,ray2019benchmarking,stooke2020responsive,tessler2018reward,chow2018risk},
-the classic control benchmark \texttt{MountainCar-v0}~\citep{moore1990mountaincar,brockman2016openaigym}
+Despite a rich body of constrained-RL work \cite{achiam2017cpo,ray2019benchmarking,stooke2020responsive,tessler2018reward,chow2018risk},
+the classic control benchmark \texttt{MountainCar-v0} \cite{moore1990mountaincar,brockman2016openaigym}
 is rarely used to study safety, because its dynamics are too simple and its reward is too sparse
 to make exploration interesting. We argue that exactly these properties make it a useful
 \emph{didactic} testbed: the algorithmic interactions between sparse reward, reward shaping, and
@@ -90,7 +84,7 @@ visual inputs.
           We show empirically that the best configuration reaches the unconstrained PPO return while
           satisfying the cost budget.
     \item We adopt a disciplined \emph{two-stage} hyperparameter protocol (base screening, then
-          a safety sweep on the top-three bases) and show that the base's unconstrained cost --- not
+          a safety sweep on the top-3 bases) and show that the base's unconstrained cost --- not
           its return --- predicts whether the constrained problem is feasible. Selecting a base by
           return alone reliably picks the configuration least able to meet the budget.
     \item We release a clean, modular codebase with reproducible configs, automated stage runners,
@@ -101,23 +95,23 @@ visual inputs.
 \section{Related Work}
 \label{sec:related}
 
-\paragraph{Deep value methods.} DQN~\citep{mnih2015dqn} popularized value-based deep RL via a
+\paragraph{Deep value methods.} DQN \cite{mnih2015dqn} popularized value-based deep RL via a
 replay buffer and a slow-moving target network, both of which we re-use in our Phase~1 baseline.
 
-\paragraph{Policy gradient methods.} PPO~\citep{schulman2017ppo} introduces a clipped surrogate
+\paragraph{Policy gradient methods.} PPO \cite{schulman2017ppo} introduces a clipped surrogate
 objective that bounds the size of each policy update; combined with Generalized Advantage
-Estimation~\citep{schulman2016gae} it is the de-facto on-policy baseline in continuous and
+Estimation \cite{schulman2016gae} it is the de-facto on-policy baseline in continuous and
 discrete control.
 
-\paragraph{Constrained / safe RL.} CMDPs~\citep{altman1999cmdp} are the standard framework for
-constrained sequential decision making. CPO~\citep{achiam2017cpo} performs a constrained policy
-update via a trust region. Reward-constrained Policy Optimization~\citep{tessler2018reward} and
-the PPO-Lagrangian baseline of \citet{ray2019benchmarking} adapt a Lagrangian multiplier via
-dual ascent --- the family our Safe~PPO belongs to. PID-Lagrangian~\citep{stooke2020responsive}
+\paragraph{Constrained / safe RL.} CMDPs \cite{altman1999cmdp} are the standard framework for
+constrained sequential decision making. CPO \cite{achiam2017cpo} performs a constrained policy
+update via a trust region. Reward-constrained Policy Optimization \cite{tessler2018reward} and
+the PPO-Lagrangian baseline of \cite{ray2019benchmarking} adapt a Lagrangian multiplier via
+dual ascent --- the family our Safe~PPO belongs to. PID-Lagrangian \cite{stooke2020responsive}
 further stabilizes the multiplier with proportional/integral/derivative control. We deliberately
 use the simpler dual-ascent variant because it surfaces the multiplier dynamics most clearly.
 
-\paragraph{Reward shaping.} Potential-based reward shaping~\citep{ng1999rewardshaping} preserves
+\paragraph{Reward shaping.} Potential-based reward shaping \cite{ng1999rewardshaping} preserves
 the optimal policy while accelerating learning in sparse-reward problems; we use a related
 mechanical-energy-style shaping term throughout this paper.
 
@@ -132,7 +126,7 @@ $\gamma \in [0,1)$. The agent seeks a policy $\pi$ maximizing
 $J_R(\pi) = \mathbb{E}_{\pi}\!\left[\sum_{t=0}^{\infty} \gamma^t R(s_t, a_t)\right]$.
 
 \subsection{Constrained MDPs}
-A CMDP~\citep{altman1999cmdp} augments an MDP with a non-negative cost $C(s,a) \ge 0$ and a
+A CMDP \cite{altman1999cmdp} augments an MDP with a non-negative cost $C(s,a) \ge 0$ and a
 budget~$d$. The constrained problem is
 \begin{equation}
 \label{eq:cmdp}
@@ -151,9 +145,7 @@ L^{\text{CLIP}}(\theta) = \mathbb{E}_t\!\left[
 \right],
 \end{equation}
 where $r_t(\theta) = \pi_\theta(a_t\!\mid\!s_t) / \pi_{\theta_{\text{old}}}(a_t\!\mid\!s_t)$ and
-$\hat{A}_t$ is the GAE advantage~\citep{schulman2016gae}. In practice both PPO and Safe~PPO add
-the same entropy bonus $\beta\,\mathcal{H}[\pi_\theta]$ to this objective to encourage
-exploration~\citep{mnih2016a3c}.
+$\hat{A}_t$ is the GAE advantage \cite{schulman2016gae}.
 
 
 \section{Method: Safe~PPO with Dual-Critic and Adaptive $\lambda$}
@@ -174,13 +166,14 @@ twice the cost.
 \subsection{Dual-critic architecture}
 Safe~PPO uses three MLP heads sharing the same input but with separate weights:
 an actor producing categorical logits, a reward critic $V_R(s)$, and a cost critic $V_C(s)$.
-For both reward and cost streams we compute Generalized Advantage Estimation~\citep{schulman2016gae} with discount $\gamma{=}0.99$ and $\lambda_{\text{GAE}}{=}0.95$.
+For both reward and cost streams we compute Generalized Advantage Estimation
+\cite{schulman2016gae} with discount $\gamma{=}0.99$ and $\lambda_{\text{GAE}}{=}0.95$.
 The reward advantage $\hat{A}_t^R$ is mean-centered and unit-scaled; the cost advantage
 $\hat{A}_t^C$ is only \emph{scaled}, not centered, so that its sign continues to indicate
 whether an action is safer or less safe than the average. Crucially, this scaling is applied
 only when the batch contains non-zero cost: when no violation has occurred we set
 $\hat{A}_t^C{=}0$ rather than normalizing critic noise, so that Safe~PPO reduces exactly to PPO
-until a genuine constraint signal appears (see \secref{sec:discussion}).
+until a genuine constraint signal appears (see Section~\ref{sec:discussion}).
 
 \subsection{Policy update}
 With clip parameter $\epsilon = 0.2$, the policy maximizes the Lagrangian-augmented surrogate
@@ -193,8 +186,8 @@ L(\theta) =
 \underbrace{\mathbb{E}_t\!\left[ r_t(\theta)\,\hat{A}^C_t \right]}_{\text{cost objective}}
 \;+\; \beta\,\mathcal{H}[\pi_\theta],
 \end{equation}
-with entropy bonus $\beta{=}0.01$~\citep{mnih2016a3c}. The reward branch uses the PPO clip; the cost branch uses an
-unclipped surrogate, in line with PPO-Lagrangian baselines~\citep{ray2019benchmarking}.
+with entropy bonus $\beta{=}0.01$. The reward branch uses the PPO clip; the cost branch uses an
+unclipped surrogate, in line with PPO-Lagrangian baselines \cite{ray2019benchmarking}.
 
 \subsection{Adaptive Lagrangian multiplier}
 We parameterize $\lambda = \exp(\ell)$ with unconstrained $\ell \in \mathbb{R}$. After each
@@ -206,7 +199,7 @@ policy/critic update we run one Adam step on
 where $\hat{J}_C$ is the empirical mean of the cost-return targets in the current batch. This
 yields the dual-ascent update $\ell \leftarrow \ell + \alpha_\lambda \exp(\ell)(\hat{J}_C - d)$,
 which monotonically increases $\lambda$ when the constraint is violated and shrinks it otherwise.
-The initialization $\ell_0$ and step size $\alpha_\lambda$ are tuned in Stage~2 (\secref{sec:setup}).
+The initialization $\ell_0$ and step size $\alpha_\lambda$ are tuned in Stage~2 (Section~\ref{sec:setup}).
 
 Algorithm~1 summarizes the full procedure.
 
@@ -221,7 +214,7 @@ Algorithm~1 summarizes the full procedure.
 \hspace*{1em} 1.\ Collect $T$ steps in \textsc{ConstrainedMountainCar}, storing $(s_t, a_t, r_t, c_t, V_R, V_C, \log\pi)$ \\
 \hspace*{1em} 2.\ Compute $\hat{A}^R, \hat{A}^C$ via dual GAE; targets $\hat{R}^R, \hat{R}^C$ \\
 \hspace*{1em} 3.\ Normalize $\hat{A}^R$ (mean/std); scale $\hat{A}^C$ by std only \emph{if} batch cost ${>}0$, else $\hat{A}^C \gets 0$ \\
-\hspace*{1em} 4.\ \textbf{For} $i = 1 \ldots N_\pi$ \textbf{do} update $\theta$ via Adam on $-L(\theta)$ in \eqnref{eq:safeppo} \\
+\hspace*{1em} 4.\ \textbf{For} $i = 1 \ldots N_\pi$ \textbf{do} update $\theta$ via Adam on $-L(\theta)$ in Eq.~\eqref{eq:safeppo} \\
 \hspace*{1em} 5.\ \textbf{For} $i = 1 \ldots N_V$ \textbf{do} update $V_R, V_C$ via MSE on $\hat{R}^R, \hat{R}^C$ \\
 \hspace*{1em} 6.\ $\hat{J}_C \gets \mathrm{mean}(\hat{R}^C)$;\ \  $\ell \gets \ell + \alpha_\lambda \exp(\ell)(\hat{J}_C - d)$ \\
 \textbf{End for}
@@ -233,13 +226,13 @@ Algorithm~1 summarizes the full procedure.
 \section{Experimental Setup}
 \label{sec:setup}
 
-\textbf{Environment.} \texttt{MountainCar-v0}~\citep{brockman2016openaigym} with maximum episode
+\textbf{Environment.} \texttt{MountainCar-v0} \cite{brockman2016openaigym} with maximum episode
 length 200 and reward $-1$ per step. We wrap with \textsc{ShapedMountainCar} for DQN/PPO and
 \textsc{ConstrainedMountainCar} ($v_{\max}{=}0.04$, $d{=}15$) for Safe~PPO.
 
 \textbf{Networks.} Two-layer MLPs with hidden size 64. DQN uses ReLU; PPO/Safe~PPO use Tanh.
 
-\textbf{Optimizers.} Adam everywhere. DQN: lr $10^{-3}$, batch 64, target sync every five episodes,
+\textbf{Optimizers.} Adam everywhere. DQN: lr $10^{-3}$, batch 64, target sync every 5 episodes,
 $\epsilon$-greedy with decay 0.995 and floor 0.05. PPO / Safe~PPO: $V$-lr $10^{-3}$, 80 policy and
 80 critic iterations per epoch, clip $\epsilon{=}0.2$, GAE $\gamma{=}0.99$, $\lambda{=}0.95$,
 4000 environment steps per epoch. The policy learning rate and entropy bonus are \emph{tuned} in
@@ -248,13 +241,13 @@ Stage~1 (below) rather than fixed.
 \textbf{Two-stage hyperparameter protocol.} To avoid an uncontrolled joint sweep we tune two axes
 at a time and freeze the rest. \emph{Stage~1} screens six unconstrained PPO bases over the grid
 $\text{lr} \in \{1, 3, 10\}\times 10^{-4}$ and entropy bonus $\beta \in \{0, 0.01\}$ (configs
-P1--P6), each over three seeds. We rank bases by the stability-aware score
+P1--P6), each over 3 seeds. We rank bases by the stability-aware score
 $\text{mean\_return} - \text{std\_return}$, keeping only those that solve (mean solved rate
 $\ge 0.5$), and carry the top three (B1=P6, B2=P5, B3=P4) into Stage~2. We additionally log a
-\emph{passive} speeding cost for each base --- computed with \eqnref{eq:cost} but never used in
+\emph{passive} speeding cost for each base --- computed with Eq.~\eqref{eq:cost} but never used in
 the PPO objective --- which serves as a feasibility tie-breaker. \emph{Stage~2} sweeps the safety
 axes $\alpha_\lambda \in \{0.02, 0.03, 0.05\}$ and $\ell_0 \in \{-1, 0\}$ on top of each base
-(configs S1--S18), with $d{=}15$ fixed, again over three seeds. A configuration \emph{passes} if its
+(configs S1--S18), with $d{=}15$ fixed, again over 3 seeds. A configuration \emph{passes} if its
 final-window cost is $\le 15$ and no seed collapses (return drops $>30\%$ from its peak without
 recovering within the last 20 epochs); the winner is the passing config with the highest mean
 return and smallest std.
@@ -268,7 +261,7 @@ $18 \times 3 = 54$ runs.
 
 \textbf{Reproducibility.} We seed Python, NumPy, and PyTorch from a single seed. The stages are
 launched via \texttt{python -m scripts.run\_stage1 --seeds 0 1 2} and
-\texttt{python -m scripts.run\_stage2 --seeds 0 1 2}; the latter auto-selects the top-three bases from
+\texttt{python -m scripts.run\_stage2 --seeds 0 1 2}; the latter auto-selects the top-3 bases from
 Stage~1. All metrics are written to \texttt{results/<config>/seed\_<s>/metrics.json}, and selection
 tables to \texttt{results/stage\{1,2\}\_summary.md}.
 
@@ -281,7 +274,7 @@ total training.
 \label{sec:results}
 
 \subsection{Stage 1: base selection}
-\tabref{tab:stage1} and \figref{fig:stage1} report the six unconstrained PPO bases.
+Table~\ref{tab:stage1} and Figure~\ref{fig:stage1} report the six unconstrained PPO bases.
 The learning rate dominates: at $10^{-4}$ (P1, P2) the policy never solves within 150 epochs
 (0\% solved, return $\approx -150$); at $3\!\times\!10^{-4}$ without entropy (P3) learning is
 unstable across seeds (65\% solved, return $-29.2 \pm 92.8$); and at $\{3\!\times\!10^{-4},
@@ -293,9 +286,9 @@ the PPO objective --- is exactly the information needed to anticipate Stage~2 fe
 
 \begin{table}[t]
   \centering
-  \caption{Stage 1 (unconstrained PPO) base screening. Final-window (last ten epochs) mean$\pm$std
-  over three seeds. ``Avg cost'' is logged passively (not optimized). Score $=
-  \text{mean}-\text{std}$ of return; the top-three solving bases are carried into Stage~2.}
+  \caption{Stage 1 (unconstrained PPO) base screening. Final-window (last 10 epochs) mean$\pm$std
+  over 3 seeds. ``Avg cost'' is logged passively (not optimized). Score $=
+  \text{mean}-\text{std}$ of return; the top-3 solving bases are carried into Stage~2.}
   \label{tab:stage1}
   \begin{tabular}{lccccccc}
     \toprule
@@ -306,7 +299,7 @@ the PPO objective --- is exactly the information needed to anticipate Stage~2 fe
     P3 & $3\!\times\!10^{-4}$ & 0    & $-29.2 \pm 92.8$  & $24.2$ & 65\%  & $-122.0$ & \\
     P4 & $3\!\times\!10^{-4}$ & 0.01 & $47.5 \pm 1.1$    & $28.9$ & 100\% & $46.4$   & \checkmark \\
     P5 & $10^{-3}$ & 0    & $47.8 \pm 1.4$    & $15.2$ & 100\% & $46.4$   & \checkmark \\
-    P6 & $10^{-3}$ & 0.01 & $47.8 \pm 0.2$    & $15.0$ & 100\% & $\mathbf{47.6}$   & \checkmark \\
+    P6 & $10^{-3}$ & 0.01 & $47.8 \pm 0.2$    & $15.0$ & 100\% & $47.6$   & \checkmark \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -314,7 +307,7 @@ the PPO objective --- is exactly the information needed to anticipate Stage~2 fe
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.58\linewidth]{fig4_stage1_selection.pdf}
-  \caption{Stage 1 base selection: final return vs.\ passive cost (three-seed mean). Green circles are
+  \caption{Stage 1 base selection: final return vs.\ passive cost (3-seed mean). Green circles are
   the three selected bases; grey crosses fail the solve criterion. The three solving bases
   (P4, P5, P6) share the same return but split sharply by cost, with P4 sitting nearly twice as
   far past the budget line as P5/P6.}
@@ -322,8 +315,8 @@ the PPO objective --- is exactly the information needed to anticipate Stage~2 fe
 \end{figure}
 
 \subsection{Stage 2: safety sweep and the role of the base}
-\tabref{tab:stage2} lists all 18 constrained configurations (S1--S18) and
-\figref{fig:stage2} plots them in the cost--return plane.
+Table~\ref{tab:stage2} lists all 18 constrained configurations (S1--S18) and
+Figure~\ref{fig:stage2} plots them in the cost--return plane.
 The result is stark and organized entirely by base. \textbf{Every one of the six P4-based
 configurations fails the constraint}, clustering at cost $29$--$34$ regardless of $\alpha_\lambda$
 or $\ell_0$: a base that overspeeds at cost $\approx 29$ when unconstrained cannot be dragged
@@ -343,7 +336,7 @@ multiplier start and the largest sweep $\alpha_\lambda{=}0.05$.
 
 \begin{table}[t]
   \centering
-  \caption{Stage 2 (Safe~PPO) sweep. Final-window (last ten epochs) mean$\pm$std over three seeds, with
+  \caption{Stage 2 (Safe~PPO) sweep. Final-window (last 10 epochs) mean$\pm$std over 3 seeds, with
   $d{=}15$ fixed. \emph{Pass} requires cost $\le 15$ and no seed collapse. S6 (bold) is the winner;
   S8 meets the cost numerically but collapses on one seed. Bases: B1=P6, B2=P5, B3=P4.}
   \label{tab:stage2}
@@ -378,7 +371,7 @@ multiplier start and the largest sweep $\alpha_\lambda{=}0.05$.
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.66\linewidth]{fig5_stage2_scatter.pdf}
-  \caption{Stage 2: final cost vs.\ return for all 18 Safe-PPO configurations (three-seed mean),
+  \caption{Stage 2: final cost vs.\ return for all 18 Safe-PPO configurations (3-seed mean),
   colored by base (P6 blue, P5 green, P4 red). Filled circles pass (cost $\le 15$, no collapse);
   crosses fail. All P4-based configs sit far past the budget; the feasible passing configs are
   built on the low-cost bases P6 and P5. S8 meets the cost numerically but collapses.}
@@ -386,7 +379,7 @@ multiplier start and the largest sweep $\alpha_\lambda{=}0.05$.
 \end{figure}
 
 \subsection{The winning policy}
-\figref{fig:winner} shows the winner's training dynamics. Return rises to $\approx 47$ within
+Figure~\ref{fig:winner} shows the winner's training dynamics. Return rises to $\approx 47$ within
 the first $\sim 40$ epochs, matching the unconstrained base, and the safety cost settles right at
 the budget ($15.0$). The Lagrangian multiplier (Fig.~\ref{fig:winner}, right) starts at
 $\lambda_0 = 1$, climbs to a peak of $\approx 0.95$ early in training as the agent first incurs
@@ -405,30 +398,30 @@ running estimate of how binding the constraint currently is.
     \includegraphics[width=\linewidth]{fig3_lambda_cost.pdf}
     \caption{Multiplier $\lambda$ (left) and cost vs.\ budget (right).}
   \end{subfigure}
-  \caption{Winning Safe~PPO (S6) dynamics, three-seed mean$\pm$std. The constraint becomes binding
+  \caption{Winning Safe~PPO (S6) dynamics, 3-seed mean$\pm$std. The constraint becomes binding
   early; $\lambda$ peaks then relaxes as cost converges to the budget with no return loss.}
   \label{fig:winner}
 \end{figure}
 
 \subsection{Comparison and summary}
-\figref{fig:curves} compares the three agents' shaped return as a function of environment
+Figure~\ref{fig:curves} compares the three agents' shaped return as a function of environment
 steps. DQN reaches a steady-state return of $\approx 27$; the PPO base and the constrained winner
 both converge to $\approx 47$, with Safe~PPO essentially overlapping unconstrained PPO --- the
-constraint costs no measurable return on this task. \tabref{tab:final} summarizes final-window
+constraint costs no measurable return on this task. Table~\ref{tab:final} summarizes final-window
 performance.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.6\linewidth]{fig1_learning_curves.pdf}
   \caption{Shaped return vs.\ environment steps for DQN, the PPO base (P6), and the Safe~PPO winner
-  (S6). Mean$\pm$std across three seeds. The two PPO variants are nearly indistinguishable.}
+  (S6). Mean$\pm$std across 3 seeds. The two PPO variants are nearly indistinguishable.}
   \label{fig:curves}
 \end{figure}
 
 \begin{table}[t]
   \centering
-  \caption{Final-window performance. Mean$\pm$std across three seeds (\texttt{--seeds 0 1 2}). Final
-  return is averaged over the last 50 episodes (DQN) or last ten epochs (PPO, Safe~PPO). PPO is the
+  \caption{Final-window performance. Mean$\pm$std across 3 seeds (\texttt{--seeds 0 1 2}). Final
+  return is averaged over the last 50 episodes (DQN) or last 10 epochs (PPO, Safe~PPO). PPO is the
   selected base P6; Safe~PPO is the winner S6.}
   \label{tab:final}
   \begin{tabular}{lcccc}
@@ -436,7 +429,7 @@ performance.
     Algorithm & Final return $\uparrow$ & Final cost $\downarrow$ & $\lambda$ end & Solved \\
     \midrule
     DQN              & $26.8 \pm 2.0$ & --            & --              & $99\%$ \\
-    PPO (base P6)    & $\mathbf{47.8 \pm 0.2}$ & $15.0$        & --              & $100\%$ \\
+    PPO (base P6)    & $47.8 \pm 0.2$ & $15.0$        & --              & $100\%$ \\
     Safe~PPO (S6)    & $47.3 \pm 0.3$ & $15.0 \le 15$ & $0.09$          & $100\%$ \\
     \bottomrule
   \end{tabular}
@@ -482,7 +475,7 @@ configs end above the budget. A warm start ($\ell_0 = 0$, $\lambda_0 = 1$) appli
 early and meets the budget far more often --- the winner uses it. But pushing harder is not free:
 the single over-constrained config (S8, low $\alpha_\lambda$ with the warm start) drives cost to
 $2.7$ yet collapses the policy on one seed. The multiplier dynamics thus have a usable but narrow
-operating band, which PID-Lagrangian~\citep{stooke2020responsive} is designed to widen by damping
+operating band, which PID-Lagrangian \cite{stooke2020responsive} is designed to widen by damping
 the response automatically.
 
 \paragraph{Soft budget, met in practice.}
@@ -492,19 +485,19 @@ unconstrained base. Because the penalty is \emph{soft} (proportional, never stri
 this reflects a genuine equilibrium between reward and cost gradients rather than a hard
 projection. The feasibility is nonetheless thin: a separate probe of hand-coded speed-capped
 controllers found that solving trajectories bottom out near cost $11$, so the budget of $15$ sits
-just above the achievable minimum. A hard-constraint variant (e.g., CPO~\citep{achiam2017cpo})
+just above the achievable minimum. A hard-constraint variant (e.g.\ CPO \cite{achiam2017cpo})
 would project the policy update onto the feasible set; we leave that comparison to future work.
 
 \paragraph{Limitations.}
-(i)~We screen with three seeds. The winner is stable ($47.3 \pm 0.3$), but several Stage~2 configs
-show high across-seed variance (e.g., collapse on a single seed), so the winner should be re-run
-with five seeds before being treated as final --- our selection script flags this explicitly.
+(i)~We screen with 3 seeds. The winner is stable ($47.3 \pm 0.3$), but several Stage~2 configs
+show high across-seed variance (e.g.\ collapse on a single seed), so the winner should be re-run
+with 5 seeds before being treated as final --- our selection script flags this explicitly.
 (ii)~The multiplier is updated against the \emph{discounted} cost-return estimate while feasibility
 is reported and checked against the \emph{undiscounted} episode cost; reconciling the two is a
 worthwhile implementation refinement.
-(iii)~\texttt{MountainCar} is a simple two-dimensional environment; conclusions about constraint
+(iii)~\texttt{MountainCar} is a simple 2-dimensional environment; conclusions about constraint
 satisfaction in higher-dimensional or visual environments require additional experiments
-(e.g.,~\citealp{ray2019benchmarking}).
+(e.g.\ \cite{ray2019benchmarking}).
 
 
 \section{Conclusion}
@@ -518,10 +511,10 @@ indistinguishable from the unconstrained base. Our central finding is that const
 is governed by the base policy's unconstrained cost rather than its return: low-cost bases yield
 all feasible solutions, while a high-cost base of equal return fails the budget in every safety
 configuration. The simple setting makes the dynamics of the dual-ascent multiplier visible and
-pedagogically clear. Future work includes a five-seed confirmation of the winner, a PID-Lagrangian
+pedagogically clear. Future work includes a 5-seed confirmation of the winner, a PID-Lagrangian
 variant, hard-constraint comparisons, and extension to higher-dimensional CMDP benchmarks.
 
-\bibliographystyle{plainnat}
+\bibliographystyle{plain}
 \bibliography{references}
 
 \end{document}

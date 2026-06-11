@@ -169,7 +169,7 @@ $\phi(s) = 1.5 \cdot |x - (-0.5)|$ and a $+100$ completion bonus on termination;
 C(s, a) = \max\!\bigl(0,\ 100\,(|\dot{x}| - v_{\max})\bigr), \quad v_{\max} = 0.04.
 \end{equation}
 The proportional form gives a smooth, informative signal: speeding by twice the margin yields
-twice the cost.
+twice the cost. We justify the specific values $v_{\max}{=}0.04$ and $d{=}15$ with a feasibility probe in \secref{sec:setup} (\figref{fig:probe}).
 
 \subsection{Dual-critic architecture}
 Safe~PPO uses three MLP heads sharing the same input but with separate weights:
@@ -236,6 +236,30 @@ Algorithm~1 summarizes the full procedure.
 \textbf{Environment.} \texttt{MountainCar-v0}~\citep{brockman2016openaigym} with maximum episode
 length 200 and reward $-1$ per step. We wrap with \textsc{ShapedMountainCar} for DQN/PPO and
 \textsc{ConstrainedMountainCar} ($v_{\max}{=}0.04$, $d{=}15$) for Safe~PPO.
+
+\textbf{Constraint design.} Both the speed cap $v_{\max}$ and the budget $d$ are fixed in advance
+by a \emph{feasibility probe} (\figref{fig:probe}): a hand-coded speed-capped controller is swept
+over 200 random starts using the exact \texttt{MountainCar} physics but no learning. Two facts set
+the values. First, $v_{\max}{=}0.04$ is the tightest cap that still solves every start within the
+200-step episode limit --- at a cap of $0.035$ the solve rate already falls to $70\%$, and by
+$0.030$ the car can no longer reach the goal. Because $0.04$ is also the cost threshold, any cap at
+or below it makes the cost identically zero, so $0.04$ is the natural floor: as slow as the agent
+can be while still always solving. Second, the thriftiest $100\%$-solving controller incurs a mean
+cost of $\approx 11$ (worst case $\approx 16$), whereas plain speeding costs $\approx 29$. We set
+$d{=}15$ between these values --- low enough to force genuinely conservative driving, yet above the
+achievable floor so the constraint stays feasible. The budget is thus tight but satisfiable by
+construction.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.62\linewidth]{fig7_feasibility_probe.pdf}
+  \caption{Feasibility probe (no learning): episode cost and solve rate versus speed cap for a
+  hand-coded capped controller over 200 random starts. Cost falls as the cap tightens, but below
+  $v_{\max}{=}0.04$ (green dashed line) the solve rate drops below $100\%$. The thriftiest solving
+  cap averages cost $\approx 11$, against the budget $d{=}15$ (dotted) and the $\approx 29$ of
+  unconstrained speeding, so the constraint is tight but feasible.}
+  \label{fig:probe}
+\end{figure}
 
 \textbf{Networks.} Two-layer MLPs with hidden size 64. DQN uses ReLU; PPO/Safe~PPO use Tanh.
 

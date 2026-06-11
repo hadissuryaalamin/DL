@@ -421,16 +421,11 @@ running estimate of how binding the constraint currently is.
 
 \begin{figure}[t]
   \centering
-  \begin{subfigure}[t]{0.49\linewidth}
-    \includegraphics[width=\linewidth]{fig2_safe_dual.pdf}
-    \caption{Return (left) and cost (right) for the winner S6, with the budget $d{=}15$.}
-  \end{subfigure}\hfill
-  \begin{subfigure}[t]{0.49\linewidth}
-    \includegraphics[width=\linewidth]{fig3_lambda_cost.pdf}
-    \caption{Multiplier $\lambda$ (left) and cost vs.\ budget (right).}
-  \end{subfigure}
-  \caption{Winning Safe~PPO (S6) dynamics, three-seed mean$\pm$std. The constraint becomes binding
-  early; $\lambda$ peaks then relaxes as cost converges to the budget with no return loss.}
+  \includegraphics[width=\linewidth]{fig_winner_dynamics.pdf}
+  \caption{Winning Safe~PPO (S6) dynamics, three-seed mean$\pm$std: shaped return (left), safety
+  cost against the budget $d{=}15$ (middle), and the Lagrangian multiplier $\lambda$ (right). The
+  constraint becomes binding early; $\lambda$ peaks then relaxes as cost converges toward the
+  budget with no return loss.}
   \label{fig:winner}
 \end{figure}
 

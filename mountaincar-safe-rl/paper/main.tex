@@ -12,6 +12,14 @@
 \usepackage{hyperref}
 \usepackage[numbers,sort&compress]{natbib}
 \usepackage{xcolor}
+\usepackage{lmodern}
+\usepackage{microtype}
+\setlength{\emergencystretch}{2.5em}
+\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 2pt}
+\setlength{\abovecaptionskip}{3pt}
+\setlength{\belowcaptionskip}{2pt}
+\setlength{\floatsep}{6pt plus 2pt minus 2pt}
 \hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!70!black}
 
 \graphicspath{{figures/}}
@@ -252,7 +260,7 @@ construction.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.62\linewidth]{fig7_feasibility_probe.pdf}
+  \includegraphics[width=0.52\linewidth]{fig7_feasibility_probe.pdf}
   \caption{Feasibility probe (no learning): episode cost and solve rate versus speed cap for a
   hand-coded capped controller over 200 random starts. Cost falls as the cap tightens, but below
   $v_{\max}{=}0.04$ (green dashed line) the solve rate drops below $100\%$. The thriftiest solving
@@ -293,7 +301,7 @@ $18 \times 3 = 54$ runs.
 \textbf{Reproducibility.} We seed Python, NumPy, and PyTorch from a single seed. The stages are
 launched via \texttt{python -m scripts.run\_stage1 --seeds 0 1 2} and
 \texttt{python -m scripts.run\_stage2 --seeds 0 1 2}; the latter auto-selects the top-three bases from
-Stage~1. All metrics are written to \texttt{results/<config>/seed\_<s>/metrics.json}, and selection
+Stage~1. All metrics are written to \texttt{results/<config>/\allowbreak seed\_<s>/\allowbreak metrics.json}, and selection
 tables to \texttt{results/stage\{1,2\}\_summary.md}.
 
 \textbf{Compute.} On an NVIDIA RTX~5050 (8\,GB) GPU each run takes $\approx 280$\,s. Stage~1
@@ -337,7 +345,7 @@ the PPO objective --- is exactly the information needed to anticipate Stage~2 fe
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.58\linewidth]{fig4_stage1_selection.pdf}
+  \includegraphics[width=0.50\linewidth]{fig4_stage1_selection.pdf}
   \caption{Stage 1 base selection: final return vs.\ passive cost (three-seed mean). Green circles are
   the three selected bases; grey crosses fail the solve criterion. The three solving bases
   (P4, P5, P6) share the same return but split sharply by cost, with P4 sitting nearly twice as
@@ -401,7 +409,7 @@ multiplier start and the largest sweep $\alpha_\lambda{=}0.05$.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.66\linewidth]{fig5_stage2_scatter.pdf}
+  \includegraphics[width=0.56\linewidth]{fig5_stage2_scatter.pdf}
   \caption{Stage 2: final cost vs.\ return for all 18 Safe-PPO configurations (three-seed mean),
   colored by base (P6 blue, P5 green, P4 red). Filled circles pass (cost $\le 15$, no collapse);
   crosses fail. All P4-based configs sit far past the budget; the feasible passing configs are
@@ -421,7 +429,7 @@ running estimate of how binding the constraint currently is.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\linewidth]{fig_winner_dynamics.pdf}
+  \includegraphics[width=0.90\linewidth]{fig_winner_dynamics.pdf}
   \caption{Winning Safe~PPO (S6) dynamics, three-seed mean$\pm$std: shaped return (left), safety
   cost against the budget $d{=}15$ (middle), and the Lagrangian multiplier $\lambda$ (right). The
   constraint becomes binding early; $\lambda$ peaks then relaxes as cost converges toward the
@@ -438,7 +446,7 @@ performance.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.6\linewidth]{fig1_learning_curves.pdf}
+  \includegraphics[width=0.52\linewidth]{fig1_learning_curves.pdf}
   \caption{Shaped return vs.\ environment steps for DQN, the PPO base (P6), and the Safe~PPO winner
   (S6). Mean$\pm$std across three seeds. The two PPO variants are nearly indistinguishable.}
   \label{fig:curves}
@@ -466,17 +474,15 @@ performance.
 \label{sec:discussion}
 
 \paragraph{Base cost, not base return, predicts constrained feasibility.}
-The clearest lesson from our sweep is that the unconstrained base determines whether the
-constrained problem is solvable at all. All three solving bases (P4, P5, P6) achieve the same
-return $\approx 47.5$, so a return-only selection rule treats them as interchangeable. Yet their
-passive cost differs two-fold, and that difference fully determines Stage~2: every P4-based config
-(base cost $28.9$) fails the budget, while the low-cost bases P5/P6 (cost $\approx 15$) yield all
-the feasible solutions. Intuitively, the Lagrangian penalty can nudge a policy that is already
-near the budget, but it cannot cheaply relocate a policy whose preferred fast trajectories sit far
-inside the violating region without sacrificing the goal. The practical recommendation is concrete:
-when screening bases for a downstream constraint, log the (passive) cost and prefer low-cost bases
-among those that solve, even at no return advantage. Selecting by return alone reliably picks the
-worst possible starting point.
+The clearest lesson is that the unconstrained base determines whether the constrained problem is
+solvable at all. The three solving bases (P4, P5, P6) reach the same return $\approx 47.5$, so a
+return-only rule treats them as interchangeable; yet their passive cost differs two-fold, and that
+gap fully determines Stage~2: every P4-based config (cost $28.9$) fails the budget, while the
+low-cost bases P5/P6 (cost $\approx 15$) yield all feasible solutions. The penalty can nudge a
+policy already near the budget, but cannot cheaply relocate one whose fast trajectories sit deep in
+the violating region without sacrificing the goal. The recommendation is concrete: when screening
+bases for a downstream constraint, log the passive cost and prefer low-cost bases among those that
+solve --- selecting by return alone picks the worst starting point.
 
 \paragraph{Sparse reward delays constraint pressure.}
 Because \texttt{MountainCar} returns $-1$ per step until termination, the agent has no incentive
@@ -485,14 +491,13 @@ hits the speed limit, so the cost-critic and the multiplier receive almost no si
 and cost signals co-activate, dual ascent begins to do useful work.
 
 \paragraph{Cost-advantage normalization in the zero-cost regime.}
-A subtle implementation detail proved decisive for stability. While the environment emits no cost,
-the cost advantage $\hat{A}^C$ contains only cost-critic noise; standardizing it to unit variance
-rescales that noise to the magnitude of the reward advantage, so the $\lambda\hat{A}^C$ term
-injects $\mathcal{O}(\lambda)$ gradient noise into the policy on \emph{every} update. Guarding the
-normalization so that $\hat{A}^C{=}0$ whenever the batch contains no cost --- letting Safe~PPO
-reduce exactly to PPO until a genuine violation occurs --- restores PPO-level discovery
-reliability while leaving the constrained behavior unchanged. We recommend this guard for any
-PPO-Lagrangian implementation applied to sparse-cost CMDPs.
+A subtle implementation detail proved decisive. While the environment emits no cost, the cost
+advantage $\hat{A}^C$ is pure cost-critic noise; standardizing it to unit variance rescales that
+noise to the reward-advantage magnitude, so the $\lambda\hat{A}^C$ term injects
+$\mathcal{O}(\lambda)$ gradient noise on \emph{every} update. Guarding the normalization so that
+$\hat{A}^C{=}0$ whenever the batch has no cost --- letting Safe~PPO reduce exactly to PPO until a
+genuine violation occurs --- restores PPO-level discovery while leaving constrained behavior
+unchanged. We recommend this guard for any PPO-Lagrangian method on sparse-cost CMDPs.
 
 \paragraph{The initial multiplier is a feasibility knob, with a collapse failure mode.}
 Stage~2 reveals a non-monotone role for $\ell_0$. A small start ($\ell_0 = -1$, $\lambda_0
@@ -505,14 +510,14 @@ operating band, which PID-Lagrangian~\citep{stooke2020responsive} is designed to
 the response automatically.
 
 \paragraph{Soft budget, met in practice.}
-Unlike an earlier single-configuration run whose cost stabilized well above the budget, the tuned
-winner converges to cost $15.0$, exactly meeting $d{=}15$, at no return cost relative to the
-unconstrained base. Because the penalty is \emph{soft} (proportional, never strictly infeasible),
-this reflects a genuine equilibrium between reward and cost gradients rather than a hard
-projection. The feasibility is nonetheless thin: a separate probe of hand-coded speed-capped
-controllers found that solving trajectories bottom out near cost $11$, so the budget of $15$ sits
-just above the achievable minimum. A hard-constraint variant (e.g., CPO~\citep{achiam2017cpo})
-would project the policy update onto the feasible set; we leave that comparison to future work.
+Unlike an earlier single-configuration run whose cost stayed well above the budget, the tuned
+winner converges to cost $15.0$, exactly meeting $d{=}15$, at no return cost. Because the penalty is
+\emph{soft} (proportional, never strictly infeasible), this reflects a genuine equilibrium between
+reward and cost gradients rather than a hard projection. Feasibility is nonetheless thin: a probe of
+hand-coded speed-capped controllers found solving trajectories bottom out near cost $11$, so
+$d{=}15$ sits just above the achievable minimum. A hard-constraint variant
+(e.g., CPO~\citep{achiam2017cpo}) would project onto the feasible set; we leave that to future
+work.
 
 \paragraph{Limitations.}
 (i)~We screen with three seeds. The winner is stable ($47.3 \pm 0.3$), but several Stage~2 configs
@@ -530,17 +535,19 @@ satisfaction in higher-dimensional or visual environments require additional exp
 \label{sec:conclusion}
 
 We presented a progressively constructed comparison of DQN, PPO, and Safe~PPO on the
-\texttt{MountainCar-v0} sparse-reward benchmark, organized as a two-stage hyperparameter study.
-The tuned Safe~PPO --- a dual-critic actor-critic with a log-parameterized Lagrangian multiplier
-and a proportional soft cost --- meets the cost budget ($15.0 \le 15$) at a return statistically
-indistinguishable from the unconstrained base. Our central finding is that constrained feasibility
-is governed by the base policy's unconstrained cost rather than its return: low-cost bases yield
-all feasible solutions, while a high-cost base of equal return fails the budget in every safety
-configuration. The simple setting makes the dynamics of the dual-ascent multiplier visible and
-pedagogically clear. Future work includes a five-seed confirmation of the winner, a PID-Lagrangian
-variant, hard-constraint comparisons, and extension to higher-dimensional CMDP benchmarks.
+\texttt{MountainCar-v0} sparse-reward benchmark, organized as a two-stage hyperparameter study. The
+tuned Safe~PPO --- a dual-critic actor-critic with a log-parameterized multiplier and a proportional
+soft cost --- meets the budget ($15.0 \le 15$) at a return indistinguishable from the unconstrained
+base. Our central finding is that constrained feasibility is governed by the base policy's
+unconstrained cost, not its return: low-cost bases yield all feasible solutions, while a high-cost
+base of equal return fails in every safety configuration. The simple setting keeps the dual-ascent
+dynamics visible and pedagogically clear. Future work includes a five-seed confirmation, a
+PID-Lagrangian variant, hard-constraint comparisons, and higher-dimensional CMDP benchmarks.
 
+\setlength{\bibsep}{2pt plus 0.3ex}
+{\footnotesize
 \bibliographystyle{plainnat}
 \bibliography{references}
+}
 
 \end{document}

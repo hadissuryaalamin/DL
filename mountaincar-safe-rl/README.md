@@ -50,13 +50,28 @@ pip install -r requirements.txt
 
 Tested on Python 3.14. CPU is fine — full sweep takes well under 2 hours.
 
-## Reproduce all experiments (3 seeds × 3 algorithms)
+## Reproduce the trained weights
+
+Full training pipeline — regenerates every `metrics.json` and model checkpoint under
+`results/`. CPU is fine; the full sweep takes well under 2 hours.
 
 ```bash
+# 1. Core agents: DQN, PPO, Safe PPO  -> results/{dqn,ppo,safe_ppo}/seed_*/
 python -m scripts.run_all --seeds 0 1 2
+
+# 2. Stage 1 — PPO hyperparameter grid P1–P6  -> results/ppo_P1..P6/
+python -m scripts.run_stage1 --seeds 0 1 2 --record-every 10
+
+# 3. Stage 2 — Safe-PPO grid S1–S18 on Stage 1's top-3 bases  -> results/safe_S1..S18/
+python -m scripts.run_stage2 --seeds 0 1 2 --record-every 10
+
+# 4. P4 300-epoch extension S19–S24  -> results/safe_S19..S24/
+python -m scripts.run_stage2_p4_300
 ```
 
-Or run individual algorithms:
+Drop `--record-every 10` from steps 2–3 to skip the training videos.
+
+Or run a single core algorithm:
 
 ```bash
 python -m scripts.run_dqn      --seed 0
@@ -79,22 +94,4 @@ and writes PDF + PNG figures to `paper/figures/`.
 
 ```bash
 cd paper
-pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex
-```
-
-## Current state of `results/`
-
-`results/<algo>/seed_0/metrics.json` was bootstrapped by parsing the logged training output
-of the original `MountainCar_main.ipynb` notebook (sparse logging: every 30 episodes for DQN,
-every 5 epochs for PPO/Safe PPO). After running `scripts/run_all.py` locally these are
-overwritten with full per-episode/per-epoch logs, and `analysis.py` will produce multi-seed
-plots with error bands.
-
-## Citing
-
-See `paper/main.pdf` for the full method, experimental setup, and result discussion.
-
-```
-Hadis Surya, "Safe Proximal Policy Optimization for Sparse-Reward Classic Control:
-A PPO-Lagrangian Study on MountainCar," 2026.
-```
+pdflatex main.tex && bibtex main && pdflatex main.tex && pdflate

@@ -420,7 +420,7 @@ multiplier start and the largest sweep $\alpha_\lambda{=}0.05$.
 \subsection{The winning policy}
 \figref{fig:winner} shows the winner's training dynamics. Return rises to $\approx 47$ within
 the first $\sim 40$ epochs, matching the unconstrained base, and the safety cost settles right at
-the budget ($15.0$). The Lagrangian multiplier (Fig.~\ref{fig:winner}, right) starts at
+the budget ($15.0$). The Lagrangian multiplier (\figref{fig:winner}, right) starts at
 $\lambda_0 = 1$, climbs to a peak of $\approx 0.95$ early in training as the agent first incurs
 cost, then relaxes toward $\approx 0.09$ once cost is under control --- exactly the self-regulating
 behavior expected from dual ascent. The interpretability of $\lambda$ as a ``how much do I weight

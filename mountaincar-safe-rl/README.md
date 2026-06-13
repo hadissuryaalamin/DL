@@ -48,7 +48,7 @@ python -m venv .venv && source .venv/bin/activate     # Linux/macOS
 pip install -r requirements.txt
 ```
 
-Tested on Python 3.10. CPU is fine — full sweep takes well under 2 hours.
+Tested on Python 3.14. CPU is fine — full sweep takes well under 2 hours.
 
 ## Reproduce all experiments (3 seeds × 3 algorithms)
 

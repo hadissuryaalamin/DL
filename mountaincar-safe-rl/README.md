@@ -94,4 +94,22 @@ and writes PDF + PNG figures to `paper/figures/`.
 
 ```bash
 cd paper
-pdflatex main.tex && bibtex main && pdflatex main.tex && pdflate
+pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex
+```
+
+## Current state of `results/`
+
+`results/<algo>/seed_0/metrics.json` was bootstrapped by parsing the logged training output
+of the original `MountainCar_main.ipynb` notebook (sparse logging: every 30 episodes for DQN,
+every 5 epochs for PPO/Safe PPO). After running `scripts/run_all.py` locally these are
+overwritten with full per-episode/per-epoch logs, and `analysis.py` will produce multi-seed
+plots with error bands.
+
+## Citing
+
+See `paper/main.pdf` for the full method, experimental setup, and result discussion.
+
+```
+Hadis Surya, "Safe Proximal Policy Optimization for Sparse-Reward Classic Control:
+A PPO-Lagrangian Study on MountainCar," 2026.
+```

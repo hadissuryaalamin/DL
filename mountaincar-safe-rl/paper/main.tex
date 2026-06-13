@@ -2,7 +2,7 @@
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[margin=1in]{geometry}
+\usepackage[margin=0.85in]{geometry}
 \usepackage{amsmath,amssymb,amsthm,bm}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -251,7 +251,7 @@ construction.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.52\linewidth]{fig7_feasibility_probe.pdf}
+  \includegraphics[width=0.46\linewidth]{fig7_feasibility_probe.pdf}
   \caption{Feasibility probe (no learning): episode cost and solve rate versus speed cap for a
   hand-coded capped controller over 200 random starts. Cost falls as the cap tightens, but below
   $v_{\max}{=}0.04$ (green dashed line) the solve rate drops below $100\%$. The thriftiest solving
@@ -336,7 +336,7 @@ the PPO objective --- is exactly the information needed to anticipate Stage~2 fe
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.50\linewidth]{fig4_stage1_selection.pdf}
+  \includegraphics[width=0.44\linewidth]{fig4_stage1_selection.pdf}
   \caption{Stage 1 base selection: final return vs.\ passive cost (three-seed mean). Green circles are
   the three selected bases; grey crosses fail the solve criterion. The three solving bases
   (P4, P5, P6) share the same return but split sharply by cost, with P4 sitting nearly twice as
@@ -400,7 +400,7 @@ multiplier start and the largest sweep $\alpha_\lambda{=}0.05$.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.56\linewidth]{fig5_stage2_scatter.pdf}
+  \includegraphics[width=0.50\linewidth]{fig5_stage2_scatter.pdf}
   \caption{Stage 2: final cost vs.\ return for all 18 Safe-PPO configurations (three-seed mean),
   colored by base (P6 blue, P5 green, P4 red). Filled circles pass (cost $\le 15$, no collapse);
   crosses fail. All P4-based configs sit far past the budget; the feasible passing configs are
@@ -420,7 +420,7 @@ running estimate of how binding the constraint currently is.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.90\linewidth]{fig_winner_dynamics.pdf}
+  \includegraphics[width=0.80\linewidth]{fig_winner_dynamics.pdf}
   \caption{Winning Safe~PPO (S6) dynamics, three-seed mean$\pm$std: shaped return (left), safety
   cost against the budget $d{=}15$ (middle), and the Lagrangian multiplier $\lambda$ (right). The
   constraint becomes binding early; $\lambda$ peaks then relaxes as cost converges toward the
@@ -437,7 +437,7 @@ performance.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.52\linewidth]{fig1_learning_curves.pdf}
+  \includegraphics[width=0.46\linewidth]{fig1_learning_curves.pdf}
   \caption{Shaped return vs.\ environment steps for DQN, the PPO base (P6), and the Safe~PPO winner
   (S6). Mean$\pm$std across three seeds. The two PPO variants are nearly indistinguishable.}
   \label{fig:curves}
